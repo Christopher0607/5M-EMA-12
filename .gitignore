@@ -3,5 +3,7 @@ __pycache__/
 *.pyc
 .env
 data/
-results/*.parquet
+# Generated output. The final summary and charts are force-added once they are
+# produced from the complete history; intermediate runs stay out of the history.
+results/
 .pytest_cache/

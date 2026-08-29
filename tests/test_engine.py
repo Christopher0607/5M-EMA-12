@@ -231,3 +231,30 @@ def test_window_is_360_minutes_ending_at_1535_et():
     last = pd.Timestamp(stamps[-1]).tz_convert("America/New_York")
     assert first.strftime("%H:%M") == "09:35"
     assert last.strftime("%H:%M") == "15:34", "last managed bar closes at 15:35 ET"
+
+
+def test_nyse_filter_drops_holidays_cme_trades_through():
+    """2024-06-19 (Juneteenth) is a CME session but not an NYSE one."""
+    from src.bars import restrict_to_nyse
+    sig = pd.DataFrame({
+        "session_date": [pd.Timestamp(d).date() for d in
+                         ["2024-06-18", "2024-06-19", "2024-06-20"]],
+        "close": [1.0, 2.0, 3.0], "ema": [0.5, 0.5, 0.5], "atr": [1.0, 1.0, 1.0],
+        "ts": pd.to_datetime(["2024-06-18", "2024-06-19", "2024-06-20"], utc=True),
+    })
+    kept = restrict_to_nyse(sig)
+    dates = {str(d) for d in kept["session_date"]}
+    assert dates == {"2024-06-18", "2024-06-20"}
+    assert "2024-06-19" not in dates
+
+
+def test_nyse_filter_flags_half_days():
+    from src.bars import restrict_to_nyse
+    sig = pd.DataFrame({
+        "session_date": [pd.Timestamp(d).date() for d in ["2024-07-03", "2024-07-05"]],
+        "close": [1.0, 2.0], "ema": [0.5, 0.5], "atr": [1.0, 1.0],
+        "ts": pd.to_datetime(["2024-07-03", "2024-07-05"], utc=True),
+    })
+    kept = restrict_to_nyse(sig).set_index("session_date")
+    assert bool(kept.loc[pd.Timestamp("2024-07-03").date(), "early_close"]) is True
+    assert bool(kept.loc[pd.Timestamp("2024-07-05").date(), "early_close"]) is False

@@ -14,6 +14,7 @@ from src.data import load_bars
 from src.metrics import daily_pnl, summarise, yearly_table
 from src.propfirm import daily_frame, rolling_evaluation, summarise_evaluation
 from src.report import equity_chart, md_table, sweep_chart, yearly_chart
+from src.summary import build as build_summary
 from src.strategy import Sizing, build_windows, run
 
 OUT = Path("results")
@@ -135,6 +136,10 @@ def main():
                  f"Net P&L by year — ATR k={head_key[1]:g}")
     sweep_chart(adverse[["variant", "param", "total_return_pct"]],
                 OUT / "sweep.png", "Total return by stop-sizing parameter")
+
+    span = (str(signals.session_date.min()), str(signals.session_date.max()))
+    (OUT / "summary.md").write_text(build_summary(
+        head_stats, sweep, ablation, costs, prop, years, head_key, best_key, span))
 
     print("\n=== HEADLINE (ATR k=%g, adverse-first) ===" % head_key[1])
     for k in ("trades", "net_pnl", "total_return_pct", "ann_return_pct",
