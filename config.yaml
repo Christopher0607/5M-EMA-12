@@ -64,3 +64,58 @@ propfirm:
     trail_basis: eod           # threshold follows end-of-day balance
     lock_at_initial: true
     daily_loss_limit: 1000.0
+
+# ---------------------------------------------------------------------------
+# Funded ("PA") phase and payout rules.
+#
+# Prop-firm terms change frequently and differ by promotion. These model the
+# publicly documented 2024-2025 $50K programmes. Every number is here rather
+# than in code so it can be corrected without touching the simulator.
+# ---------------------------------------------------------------------------
+funded:
+  apex_50k:
+    balance: 50000.0
+    trailing_dd: 2500.0
+    trail_basis: intraday
+    lock_at_initial: true
+    daily_loss_limit: null
+    min_trading_days: 8          # qualifying days before a payout may be requested
+    min_day_profit: 50.0         # a day counts as qualifying at or above this
+    safety_net: 52600.0          # balance must stay at/above this after withdrawal
+    payout_cap: 2000.0           # cap on the first `capped_payouts` withdrawals
+    capped_payouts: 3
+    consistency_max_day_share: 0.30   # no single day may exceed 30% of total profit
+    split_full_to: 25000.0       # 100% of profit up to here ...
+    split_after: 1.0             # ... and this share beyond it
+  topstep_50k:
+    balance: 50000.0
+    trailing_dd: 2000.0
+    trail_basis: eod
+    lock_at_initial: true
+    daily_loss_limit: 1000.0
+    min_trading_days: 5          # TopStep counts *winning* days at $200+
+    min_day_profit: 200.0
+    safety_net: 50000.0
+    payout_cap: null
+    capped_payouts: 0
+    consistency_max_day_share: null
+    split_full_to: 10000.0       # 100% of the first $10k ...
+    split_after: 0.9             # ... then 90%
+
+withdrawal_policies:
+  immediate:   {kind: all}                  # everything above the safety net
+  half_buffer: {kind: fraction, value: 0.5} # half the excess, keep a cushion
+  accumulate:  {kind: threshold, value: 2000.0}  # only once the excess clears $2,000
+
+fees:
+  promo:       # what most people actually pay - Apex discounts run most months
+    apex_50k:    {evaluation: 35.0,  activation: 0.0,  monthly_funded: 85.0}
+    topstep_50k: {evaluation: 49.0,  activation: 0.0,  monthly_funded: 49.0}
+  list:        # undiscounted
+    apex_50k:    {evaluation: 167.0, activation: 0.0,  monthly_funded: 85.0}
+    topstep_50k: {evaluation: 165.0, activation: 0.0,  monthly_funded: 165.0}
+
+walkforward:
+  select_metric: net_pnl       # the same metric that produced N=2, so the test is fair
+  min_train_years: 2
+  holdout_split_year: 2018     # select on < this year, report on >= this year

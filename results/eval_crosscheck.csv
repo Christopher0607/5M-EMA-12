@@ -1,0 +1,13 @@
+config,firm,eval_pass_rate_pct
+fixed N=2 (trailing),apex_50k,53.14637482900137
+fixed N=2 (trailing),topstep_50k,44.090610636900855
+fixed N=2 (fixed stop),apex_50k,47.06078824315297
+fixed N=2 (fixed stop),topstep_50k,38.80353056554429
+pct 0.5% (trailing),apex_50k,31.598727956056663
+pct 0.5% (trailing),topstep_50k,30.502599653379548
+pct 0.5% (fixed stop),apex_50k,31.80098923479779
+pct 0.5% (fixed stop),topstep_50k,32.14077952297848
+walk-forward (out of sample),apex_50k,51.42733564013841
+walk-forward (out of sample),topstep_50k,39.7796817625459
+holdout: fixed 2 (out of sample),apex_50k,52.026082906381
+holdout: fixed 2 (out of sample),topstep_50k,47.072490706319705
