@@ -216,3 +216,93 @@ Single market, single session, no regime filter. Sweeps are sensitivity analysis
 optimisation — the headline is the a-priori default, because quoting the best cell of a sweep
 over one dataset is how backtests get overfitted. Commissions and slippage are modelled but a
 real fill at the open in a fast tape can be worse. Past results do not predict future returns.
+
+---
+
+# Getting paid: the funded phase
+
+Passing an evaluation is not the goal. This section simulates the whole journey — buy an
+evaluation, pass, trade funded, withdraw, bust, buy another — across the full history.
+Run it with `scripts/run_propfirm.py`.
+
+## `fixed N=2` as asked
+
+Apex $50K, promotional fees, withdraw as soon as eligible, 2010-06 → 2026-08:
+
+| | |
+|---|---|
+| Evaluations bought | 37 |
+| Evaluations passed | 15 (40.5%; the rolling-restart pass rate is 53.1%) |
+| **Payouts** | **32** |
+| Total withdrawn | $29,577 |
+| Fees paid | $6,905 |
+| **Net to trader** | **$22,672** (~$1,400/yr over 16.2 years) |
+| Average payout | $924 (largest $2,546) |
+| **First payout** | **2018-10-25 — session 1,559, 8.5 years in** |
+| Time funded | 36% (the other 64% is spent re-testing) |
+
+The 8.5-year wait is the finding, not the total. 2010–2017 earns almost nothing, so the career
+never escapes the evaluation loop. Fees swing the result meaningfully: at list price rather than
+promo, the same career nets $17,788 instead of $22,672.
+
+The two pass-rate numbers differ because they answer different questions. 53.1% is the share of
+*decided* accounts among rolling restarts; 40.5% is 15 passes out of 37 evaluations actually
+bought in one sequential career, which includes an undecided final attempt.
+
+## The parameter choice does not survive out of sample
+
+`fixed N=2` won a 14-config sweep on the same 16 years it was then judged on. Two independent checks:
+
+| | Total P&L |
+|---|---|
+| Walk-forward — reselect each year on prior data only | **$34,803** |
+| `fixed N=2` — hindsight | $52,562 |
+| Per-year best — unreachable ceiling | $115,551 |
+
+**A 34% discount.** Last year's best config lands at rank **6.4 / 14** the next year, where random
+is 7.5, and is genuinely #1 only 2 times in 15.
+
+The single holdout is kinder: selecting on 2010–2017 *does* pick `fixed 2`, which then earns
+$50,280 out of sample at rank 3/14. Two honest tests disagree about how much to discount, so the
+range — not either endpoint — is the answer.
+
+## `N=2` is not the best configuration
+
+Like-for-like from 2018 (Apex, promo, immediate withdrawal — same window for every row, since the
+holdout log only starts in 2018):
+
+| Config | Payouts | Withdrawn | Net | Per year |
+|---|---|---|---|---|
+| **pct 0.5% (fixed stop)** | **42** | $59,369 | **$50,629** | **$5,863** |
+| fixed N=2 (fixed stop) | 24 | $43,474 | $36,759 | $4,257 |
+| walk-forward (out of sample) | 27 | $29,269 | $23,284 | $2,705 |
+| fixed N=2 (trailing) | 33 | $28,539 | $22,099 | $2,559 |
+| pct 0.5% (trailing) | 23 | $27,061 | $21,701 | $2,513 |
+
+Over 80 two-year careers started throughout that window:
+
+| Config | Median payouts | Median net | Losing careers |
+|---|---|---|---|
+| **pct 0.5% (fixed stop)** | 8 | **$6,553** | **0.0%** |
+| fixed N=2 (trailing) | 6 | $2,981 | 26.2% |
+| walk-forward | 4 | $2,250 | 35.0% |
+| pct 0.5% (trailing) | 3 | $2,135 | 31.2% |
+| fixed N=2 (fixed stop) | 4 | $1,030 | 8.8% |
+
+**0% losing careers is a 2018-onward figure and must be read as such** — over the full 16 years
+that config's losing share is 11.7%. 2018+ was a favourable era for this strategy.
+
+`pct 0.5% (fixed stop)` also resists overfitting *structurally*, which matters more than winning a
+sweep: the stop scales with price, so it has no "never triggers for eight years" artifact; its
+intrabar path divergence is 6.4pp, small enough that 1-minute data resolves it; and a non-trailing
+exit has no within-bar path ambiguity at all.
+
+## Rules modelled
+
+Apex and TopStep $50K programmes as publicly documented for 2024–2025: qualifying days
+(8 at $50+ / 5 at $200+), safety net ($52,600 / $50,000), Apex's 30% single-day consistency rule
+and $2,000 cap on the first three payouts, and profit splits (100% to $25k / 100% of the first
+$10k then 90%). Fees are modelled twice, promotional and list.
+
+**These terms change often.** Every number lives in `config.yaml` with a comment naming what it
+models, so it can be corrected without touching the simulator.
