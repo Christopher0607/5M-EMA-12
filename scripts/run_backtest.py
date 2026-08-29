@@ -44,9 +44,11 @@ def main():
     # ---------------------------------------------------------- sweeps
     print("running parameter sweeps ...", flush=True)
     sweep_rows, trade_logs = [], {}
-    specs = ([("atr", k) for k in cfg["variants"]["atr"]["k"]]
-             + [("pct", p) for p in cfg["variants"]["pct"]["p"]]
-             + [("fixed", n) for n in cfg["variants"]["fixed"]["n"]])
+    # Params are normalised to float so sweep-table lookups (which round-trip
+    # through a DataFrame) match the trade-log keys for the integer-N variant.
+    specs = ([("atr", float(k)) for k in cfg["variants"]["atr"]["k"]]
+             + [("pct", float(p)) for p in cfg["variants"]["pct"]["p"]]
+             + [("fixed", float(n)) for n in cfg["variants"]["fixed"]["n"]])
     for kind, param in specs:
         for favorable in (False, True):
             trades = backtest(Sizing(kind, param), favorable_first=favorable)
@@ -62,9 +64,9 @@ def main():
     # ---------------------------------------------------------- ablation
     print("running stop ablation ...", flush=True)
     ablation_rows = []
-    defaults = [("atr", cfg["variants"]["atr"]["default_k"]),
-                ("pct", cfg["variants"]["pct"]["default_p"]),
-                ("fixed", cfg["variants"]["fixed"]["default_n"])]
+    defaults = [("atr", float(cfg["variants"]["atr"]["default_k"])),
+                ("pct", float(cfg["variants"]["pct"]["default_p"])),
+                ("fixed", float(cfg["variants"]["fixed"]["default_n"]))]
     for kind, param in defaults + [("atr", 3.0), ("atr", 4.0)]:
         for label, kw in [("trailing stop", {}),
                           ("fixed stop", {"trailing": False}),
@@ -91,7 +93,7 @@ def main():
     costs.to_csv(OUT / "cost_sensitivity.csv", index=False)
 
     # ---------------------------------------------------------- headline
-    head_key = ("atr", cfg["variants"]["atr"]["default_k"])
+    head_key = ("atr", float(cfg["variants"]["atr"]["default_k"]))
     head_trades = trade_logs[head_key]
     head_trades.to_csv(OUT / "trades_headline.csv", index=False)
     head_stats = summarise(head_trades, initial)
@@ -101,7 +103,7 @@ def main():
     # best-returning config, reported as a sweep observation, not a recommendation
     adverse = sweep[sweep["path"] == "adverse_first"]
     best = adverse.loc[adverse["total_return_pct"].idxmax()]
-    best_key = (best["variant"], best["param"])
+    best_key = (str(best["variant"]), float(best["param"]))
     best_trades = trade_logs[best_key]
     best_trades.to_csv(OUT / "trades_best.csv", index=False)
     yearly_table(best_trades, initial).to_csv(OUT / "yearly_best.csv", index=False)
