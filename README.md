@@ -109,6 +109,13 @@ Both are swept.
 
 # Results
 
+> **Correction (contract cap).** Earlier revisions of this file capped position size at
+> **10 micros**. TopStep's real limit is **50 on a $50K** (100 / 150 on the larger tiers). The wrong
+> cap bound on **89% of trades**, so it — not the 1% risk rule — was setting position size, and it
+> was quietly shielding the strategy from its own commission bill. Everything below is re-run at
+> the correct cap. The headline moved from **−67.4% to −250.8%**. `fixed N=2` is unaffected
+> (pinned at 2 contracts) and the ranking of configurations is unchanged.
+
 **2010-06-07 → 2026-08-28 · 3,529 trades · 4.81M 1-minute bars · $50,000 account**
 
 ## Headline — the strategy as specified
@@ -117,23 +124,23 @@ ATR-normalised stop, k=1.0, adverse-first path:
 
 | | |
 |---|---|
-| **Total return** | **−67.4%** (−$33,688) |
-| Annualised | −4.2% |
+| **Total return** | **−250.8%** (−$125,414) |
+| Annualised | −15.5% |
 | Win rate | 34.5% |
-| Profit factor | 0.90 |
-| Max drawdown | −$34,079 |
-| Sharpe | −0.51 |
+| Profit factor | 0.82 |
+| Max drawdown | −$125,591 |
+| Sharpe | −1.09 |
 | Exits via stop | **100%** — the 6-hour cap never once bound |
 
 The P&L bridge is the whole story:
 
 | | |
 |---|---|
-| Gross P&L | **+$12,159** |
-| Commissions (3,529 trades × ~9.7 micros) | **−$45,847** |
-| **Net** | **−$33,688** |
+| Gross P&L | **+$23,775** |
+| Commissions (3,529 trades × ~32 micros) | **−$149,189** |
+| **Net** | **−$125,414** |
 
-Fees are **3.8× gross profit**. A tighter stop forces a larger position to keep risk at 1%,
+Fees are **6.3× gross profit**. A tighter stop forces a larger position to keep risk at 1%,
 and the position size is what sets the commission bill. The losses are mostly a transaction-cost
 problem, not a signal problem.
 
@@ -306,3 +313,76 @@ $10k then 90%). Fees are modelled twice, promotional and list.
 
 **These terms change often.** Every number lives in `config.yaml` with a comment naming what it
 models, so it can be corrected without touching the simulator.
+
+---
+
+# TopStep: tiers, risk bases, and scaling to maximum capital
+
+Run with `scripts/run_topstep.py`. Models the 2026 published terms: 50/100/150 micro caps,
+$150 qualifying days, the Combine consistency rule (best day ≤ 50% of target, which gates
+*passing*, not withdrawing), per-payout caps of $2,000/$3,000/$5,000, and a flat 90/10 split.
+
+## The risk basis decides whether a bigger account helps
+
+An MLL scales 2.25× from $50K to $150K while a 1%-of-balance risk scales 3×, so the sizing rule —
+not the account size — sets how much room you actually have:
+
+| Risk basis | $50K | $100K | $150K |
+|---|---|---|---|
+| Fixed $500 | 4 losses | 6 | **9** |
+| 1% of balance | 4 | 3 | **3** ← *bigger account is tighter* |
+| 25% of MLL | 4 | 4 | 4 |
+
+## Scaling one account (pct 0.5% fixed stop, Standard path, net to trader over 16 years)
+
+| Tier | Fixed $500 | 1% of balance | 25% of MLL |
+|---|---|---|---|
+| $50K | $2,670 | $2,670 | $2,670 |
+| $100K | $17,650 | $31,224 | $9,418 |
+| **$150K** | **$39,525** | $46,563 | $13,458 |
+
+Pass rate is what drives this: 13.3% on a $50K against **30.9%** on a $150K under fixed risk.
+`pct_balance` posts the single highest number ($46,563) but on a **8.8% pass rate** with **79% of
+payouts hitting the cap** — it rarely passes, and when it does the firm's cap, not the strategy,
+limits the income.
+
+## One big account beats several small ones
+
+For the same 150-micro capacity:
+
+| | Capacity | Total MLL | Total payout cap | Pass rate | Net |
+|---|---|---|---|---|---|
+| 1 × $150K | 150 | $4,500 | $5,000 | 30.9% | **$39,525** |
+| 3 × $50K | 150 | $6,000 | $6,000 | 13.3% | $8,009 |
+
+The three small accounts have **more** aggregate drawdown room and **more** total payout cap, yet
+net 20% as much. Copied accounts are perfectly correlated — one busts, they all bust — so what
+matters is the room a *single* account has, never the sum.
+
+## Maximum capital: pick the biggest tier, then copy it
+
+| Accounts | Funded capital | Payouts | Net over 16 yrs | Per year |
+|---|---|---|---|---|
+| 1 × $150K | $150,000 | 29 | $39,525 | $2,440 |
+| 3 × $150K | $450,000 | 87 | $118,576 | $7,319 |
+| 5 × $150K | $750,000 | 145 | $197,626 | $12,199 |
+| 10 × $150K | $1,500,000 | 290 | $395,252 | $24,398 |
+
+**Exactly linear, and that is the warning.** Copies multiply income, fees, and ruin risk together
+and diversify nothing. Three practical limits the arithmetic does not show: TopStep permits
+multiple Express Funded accounts but only **one Live Funded account** at a time; 10 × 150 micros is
+1,500 MNQ (150 NQ-equivalent) hitting the open in one clip, which is a market-impact question this
+backtest does not model; and every copy needs its own evaluation fees paid through the same losing
+stretches.
+
+## Payout path
+
+Consistency (3 days, 40% target, higher caps) beats Standard on the smaller tiers — $4,919 vs
+$2,670 on a $50K — but loses badly on a $150K ($19,933 vs $39,525), where the 40% share rule blocks
+more than the higher cap returns.
+
+## TopStep vs Apex
+
+TopStep is materially harder: `fixed N=2` passes 44.1% at Apex against 37% at TopStep once the
+Combine consistency rule is enforced, because of the $1,000 daily loss limit and that rule. Best
+single-account TopStep result (~$39.5k over 16 years) trails the best Apex result (~$50.6k).

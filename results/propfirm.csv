@@ -1,5 +1,5 @@
 accounts,passed,blown,undecided,pass_rate_pct,median_days_to_pass,median_days_to_bust,bust_trailing_drawdown,config,firm
-3528,388,3119,21,11.063587111491303,27.0,93.0,3119,headline ATR k=1,apex_50k
-3528,367,3157,4,10.414301929625426,26.0,76.0,3157,headline ATR k=1,topstep_50k
+3528,497,3027,4,14.103291713961408,15.0,15.0,3027,headline ATR k=1,apex_50k
+3528,494,3031,3,14.01418439716312,15.0,14.0,3031,headline ATR k=1,topstep_50k
 3528,1554,1370,604,53.14637482900137,65.0,32.0,1370,best sweep fixed=2,apex_50k
 3528,1343,1703,482,44.090610636900855,54.0,33.0,1703,best sweep fixed=2,topstep_50k
