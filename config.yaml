@@ -1,0 +1,66 @@
+# NQ 5-min EMA12 opening-range strategy — all tunables live here.
+
+data:
+  dataset: GLBX.MDP3
+  # Volume-rank continuous, NOT calendar-rank (.c.0). On expiry week .c.0 stays
+  # in the dying front month: 2024-09-20 showed 380 contracts in the 09:30 hour
+  # versus 68,278 for .v.0. Trading .c.0 there would be fiction.
+  symbol: NQ.v.0
+  stype_in: continuous
+  schema: ohlcv-1m
+  start: "2010-06-06"      # dataset inception for GLBX.MDP3
+  end:   "2026-08-29"      # exclusive
+  cache_dir: data
+  max_spend_usd: 18.0      # hard guard; fetch aborts if estimate exceeds this
+
+contract:
+  # We buy NQ price data but simulate MNQ (micro) contract specs.
+  # Same underlying, same price; only point value differs.
+  name: MNQ
+  point_value: 2.0         # USD per index point
+  tick_size: 0.25
+  tick_value: 0.50
+
+account:
+  initial_capital: 50000.0
+  risk_pct: 0.01           # 1% of initial capital = $500 stop loss
+  max_contracts: 10        # $50K prop-firm micro limit
+
+costs:
+  commission_rt: 1.34      # USD round-turn per micro contract
+  slippage_ticks: 1        # ticks of slippage on each fill (entry and exit)
+
+strategy:
+  signal_local_time: "09:30"   # ET; the 09:30-09:35 bar is the signal bar
+  timezone: America/New_York
+  bar_minutes: 5
+  ema_period: 12
+  atr_period: 14
+  max_hold_hours: 6
+
+variants:
+  atr:                     # V1 (headline): D = k * ATR14, contracts sized to 1% risk
+    k: [0.5, 1.0, 1.5, 2.0]
+    default_k: 1.0
+  pct:                     # V2: D = p * entry_price, contracts sized to 1% risk
+    p: [0.0025, 0.005, 0.0075, 0.01]
+    default_p: 0.005
+  fixed:                   # V3 (literal): N contracts, D = risk$ / (N * point_value)
+    n: [1, 2, 5, 10]
+    default_n: 1
+
+propfirm:
+  apex_50k:
+    balance: 50000.0
+    trailing_dd: 2500.0
+    profit_target: 3000.0
+    trail_basis: intraday      # threshold follows highest intraday equity
+    lock_at_initial: true      # stops trailing once threshold reaches start balance
+    daily_loss_limit: null
+  topstep_50k:
+    balance: 50000.0
+    trailing_dd: 2000.0
+    profit_target: 3000.0
+    trail_basis: eod           # threshold follows end-of-day balance
+    lock_at_initial: true
+    daily_loss_limit: 1000.0
