@@ -1,0 +1,232 @@
+// NQ 5-Minute EMA12 Opening-Range Strategy
+//
+// At the close of the 09:30-09:35 ET bar: close above EMA12 -> long, below -> short.
+// Fixed (non-trailing) stop, flat 6 hours later at 15:35 ET.
+//
+// There is NO take profit. That is deliberate, not an omission: the backtest this
+// script reproduces exits on the stop or on the clock, and a profit target was
+// never validated. The time exit is drawn distinctly so it never looks like a stop.
+//
+// The stop does not trail. In the backtest a trailing stop ranked LAST in every one
+// of 4 configurations x 2 intrabar path assumptions - 8 of 8 - because it cut
+// winners that were still running.
+//
+// CHART MUST BE 5-MINUTE WITH EXTENDED HOURS ON.
+// The EMA runs on the 24-hour continuous session. An RTH-only chart computes a
+// different EMA and therefore produces different signals, with no error. The script
+// detects this and warns rather than trading silently.
+
+//@version=6
+strategy("NQ 5m EMA12 Open", overlay = true,
+     default_qty_type      = strategy.fixed,
+     default_qty_value     = 1,
+     initial_capital       = 50000,
+     currency              = currency.USD,
+     commission_type       = strategy.commission.cash_per_contract,
+     commission_value      = 0.67,          // one way; 1.34 round turn per micro
+     slippage              = 1,             // ticks
+     calc_on_every_tick    = false,
+     process_orders_on_close = true,
+     margin_long = 0, margin_short = 0)
+
+// ─────────────────────────────────────────────── inputs
+var string G_SIG = "Signal"
+var string G_STP = "Stop"
+var string G_SIZ = "Sizing"
+var string G_VIS = "Display"
+var string G_ALT = "Automation"
+
+emaLen   = input.int(12, "EMA length", minval = 1, group = G_SIG)
+sigHour  = input.int(9,  "Signal hour (New York)", minval = 0, maxval = 23, group = G_SIG)
+sigMin   = input.int(30, "Signal minute", minval = 0, maxval = 59, group = G_SIG)
+holdHrs  = input.float(6.0, "Max hold (hours)", minval = 0.5, step = 0.5, group = G_SIG)
+
+stopMode = input.string("Percent of price", "Stop distance",
+     options = ["Percent of price", "Fixed points", "ATR multiple"], group = G_STP,
+     tooltip = "Percent 0.5% is the best career result in the backtest. Fixed 125pt " +
+               "(N=2) and 250pt (N=1) are the fixed-contract variants.")
+stopPct  = input.float(0.5,  "  Percent (%)", minval = 0.01, step = 0.05, group = G_STP)
+stopPts  = input.float(125., "  Fixed points", minval = 0.25, step = 0.25, group = G_STP)
+atrLen   = input.int(14,     "  ATR length", minval = 1, group = G_STP)
+atrMult  = input.float(4.0,  "  ATR multiple", minval = 0.1, step = 0.1, group = G_STP)
+
+sizeMode = input.string("Risk-based", "Position size",
+     options = ["Risk-based", "Fixed contracts"], group = G_SIZ)
+riskUsd  = input.float(500., "  Risk per trade ($)", minval = 1, step = 50, group = G_SIZ,
+     tooltip = "1% of a $50,000 account. Contracts = floor(risk / (stop points x point value)).")
+fixedQty = input.int(2,      "  Fixed contracts", minval = 1, group = G_SIZ)
+ptValue  = input.float(2.0,  "Point value ($)", minval = 0.01, step = 0.5, group = G_SIZ,
+     tooltip = "MNQ micro = $2. NQ e-mini = $20.")
+maxQty   = input.int(40,     "Max contracts (firm cap)", minval = 1, group = G_SIZ,
+     tooltip = "Lucid 50K=40 100K=60 150K=100 | TopStep 50K=50 100K=100 150K=150 | " +
+               "Apex 50K=100 | TPT 50K=20 150K=50")
+
+showZone = input.bool(true,  "Shade holding window", group = G_VIS)
+showStop = input.bool(true,  "Draw stop line",       group = G_VIS)
+showLbl  = input.bool(true,  "Signal labels",        group = G_VIS)
+showTbl  = input.bool(true,  "Status table",         group = G_VIS)
+
+alertSym = input.string("MNQ1!", "Alert symbol", group = G_ALT,
+     tooltip = "What your execution bridge expects, e.g. MNQZ2026 or MNQ1!.")
+
+// ─────────────────────────────────────────────── time helpers
+TZ = "America/New_York"
+nyHour = hour(time, TZ)
+nyMin  = minute(time, TZ)
+
+isSignalBar = nyHour == sigHour and nyMin == sigMin
+
+// Exit bar: entry (09:35) + holdHrs. The 09:30 bar CLOSES at 09:35, so the exit bar
+// is the one that closes holdHrs later - i.e. opens at 15:30 for a 6-hour hold.
+exitMinOfDay = sigHour * 60 + sigMin + math.round(holdHrs * 60)
+nyMinOfDay   = nyHour * 60 + nyMin
+isExitBar    = nyMinOfDay == exitMinOfDay
+
+// ─────────────────────────────────────────────── RTH-only guard
+// On a continuous chart the bar before 09:30 is 09:25. On an RTH-only chart it is the
+// previous session's last bar, hours earlier. This is the single most likely way to
+// run the wrong strategy without noticing, so it is checked, not documented.
+barMs     = timeframe.in_seconds() * 1000
+gapBefore = time - time[1]
+rthOnly   = isSignalBar and gapBefore > barMs * 2
+var bool warned = false
+if rthOnly and not warned
+    warned := true
+    label.new(bar_index, high, "⚠ EXTENDED HOURS IS OFF\nThe EMA is being computed on " +
+         "RTH bars only, so these signals do NOT match the backtest.\n" +
+         "Chart settings → uncheck “Regular trading hours”.",
+         style = label.style_label_down, color = color.new(color.red, 0),
+         textcolor = color.white, size = size.large)
+
+// ─────────────────────────────────────────────── indicators
+ema12 = ta.ema(close, emaLen)
+atr   = ta.atr(atrLen)
+
+emaCol = close > ema12 ? color.new(#2a78d6, 0) : color.new(#eb6834, 0)
+plot(ema12, "EMA12", color = emaCol, linewidth = 2)
+
+// ─────────────────────────────────────────────── signal
+goLong  = isSignalBar and close > ema12
+goShort = isSignalBar and close < ema12
+// close == ema12 exactly -> no trade, matching the backtest
+
+stopDistRaw = stopMode == "Percent of price" ? close * stopPct / 100.0
+     : stopMode == "Fixed points"            ? stopPts
+     :                                         atr * atrMult
+// round to the 0.25 tick grid
+stopDist = math.max(math.round(stopDistRaw / syminfo.mintick) * syminfo.mintick,
+                    syminfo.mintick)
+
+qtyRaw = sizeMode == "Fixed contracts" ? fixedQty
+     : int(math.floor(riskUsd / (stopDist * ptValue)))
+qty    = math.min(math.max(qtyRaw, 0), maxQty)
+tradable = qty >= 1
+
+// ─────────────────────────────────────────────── state
+var float entryPx   = na
+var float stopPx    = na
+var int   entryBar  = na
+var int   dirState  = 0
+var int   qtyState  = 0
+
+longMsg  = '{"ticker":"'  + alertSym + '","action":"buy","sentiment":"long","quantity":'
+shortMsg = '{"ticker":"' + alertSym + '","action":"sell","sentiment":"short","quantity":'
+flatMsg  = '{"ticker":"'  + alertSym + '","action":"exit","sentiment":"flat"}'
+
+if goLong and tradable and strategy.position_size == 0
+    entryPx  := close
+    stopPx   := close - stopDist
+    entryBar := bar_index
+    dirState := 1
+    qtyState := qty
+    strategy.entry("L", strategy.long, qty = qty,
+         alert_message = longMsg + str.tostring(qty) + ',"stop":' +
+                         str.tostring(stopPx, format.mintick) + '}')
+
+if goShort and tradable and strategy.position_size == 0
+    entryPx  := close
+    stopPx   := close + stopDist
+    entryBar := bar_index
+    dirState := -1
+    qtyState := qty
+    strategy.entry("S", strategy.short, qty = qty,
+         alert_message = shortMsg + str.tostring(qty) + ',"stop":' +
+                         str.tostring(stopPx, format.mintick) + '}')
+
+// Fixed stop. strategy.exit with a plain `stop` does not trail - that is the point.
+if strategy.position_size > 0
+    strategy.exit("L stop", from_entry = "L", stop = stopPx, alert_message = flatMsg)
+if strategy.position_size < 0
+    strategy.exit("S stop", from_entry = "S", stop = stopPx, alert_message = flatMsg)
+
+// Time exit
+timeExit = isExitBar and strategy.position_size != 0
+if timeExit
+    strategy.close_all("6h time exit", alert_message = flatMsg)
+
+// ─────────────────────────────────────────────── visuals
+inTrade = strategy.position_size != 0
+bgcolor(showZone and inTrade ? color.new(dirState == 1 ? #2a78d6 : #eb6834, 94) : na)
+bgcolor(isSignalBar ? color.new(#eda100, 80) : na, title = "Signal bar")
+
+plotshape(goLong  and tradable, "Long signal",  shape.triangleup,
+     location.belowbar, color.new(#2a78d6, 0), size = size.small)
+plotshape(goShort and tradable, "Short signal", shape.triangledown,
+     location.abovebar, color.new(#eb6834, 0), size = size.small)
+// A skipped signal is worth seeing: it means the stop was too wide for the risk budget.
+plotshape(isSignalBar and not tradable and (close != ema12), "Skipped (size 0)",
+     shape.xcross, location.belowbar, color.new(#898781, 0), size = size.tiny)
+
+// Stop line, drawn only while the trade is live
+var line stopLine = na
+if (goLong or goShort) and tradable
+    if not na(stopLine)
+        line.delete(stopLine)
+    stopLine := showStop ? line.new(bar_index, stopPx, bar_index + 1, stopPx,
+         color = color.new(#e34948, 0), width = 2, style = line.style_solid) : na
+if inTrade and not na(stopLine)
+    line.set_x2(stopLine, bar_index + 1)
+
+// The time exit gets its own marker so it never reads as a stop-out
+plotshape(timeExit, "Time exit", shape.square, location.abovebar,
+     color.new(#0ca30c, 0), size = size.tiny)
+if timeExit
+    label.new(bar_index, close, "15:35 平仓", style = label.style_label_up,
+         color = color.new(#0ca30c, 20), textcolor = color.white, size = size.tiny)
+
+if showLbl and (goLong or goShort)
+    sigDir = goLong ? 1 : -1        // not dirState: that is only set on a tradable signal
+    txt = (sigDir == 1 ? "▲ LONG" : "▼ SHORT") +
+          (tradable ? "\n" + str.tostring(qty) + " 手  止损 " +
+                      str.tostring(stopDist, format.mintick) + " 点\n风险 $" +
+                      str.tostring(qty * stopDist * ptValue, "#.##")
+                    : "\n跳过：止损太宽")
+    label.new(bar_index, tradable ? (sigDir == 1 ? low : high) : close, txt,
+         style = sigDir == 1 ? label.style_label_up : label.style_label_down,
+         color = color.new(sigDir == 1 ? #2a78d6 : #eb6834, 15),
+         textcolor = color.white, size = size.small)
+
+// ─────────────────────────────────────────────── status table
+// Declared at global scope: Pine rejects a function definition inside an if block.
+var table t = table.new(position.top_right, 2, 8,
+     bgcolor = color.new(#151a20, 8), border_color = color.new(#38434f, 40),
+     border_width = 1)
+
+row(int i, string k, string v) =>
+    table.cell(t, 0, i, k, text_color = color.new(#b3bec9, 0), text_size = size.small,
+         text_halign = text.align_left)
+    table.cell(t, 1, i, v, text_color = color.new(#f2f5f8, 0), text_size = size.small,
+         text_halign = text.align_right)
+
+if showTbl and barstate.islast
+    row(0, "状态", inTrade ? (dirState == 1 ? "持多" : "持空") : "空仓")
+    row(1, "止损方式", stopMode)
+    row(2, "止损距离", str.tostring(stopDist, format.mintick) + " 点")
+    row(3, "手数", str.tostring(qty) + " / 上限 " + str.tostring(maxQty))
+    row(4, "本笔风险", "$" + str.tostring(qty * stopDist * ptValue, "#.##"))
+    row(5, "止损价", inTrade ? str.tostring(stopPx, format.mintick) : "—")
+    exH = str.tostring(math.floor(exitMinOfDay / 60))
+    exM = exitMinOfDay % 60 < 10 ? "0" + str.tostring(exitMinOfDay % 60)
+                                 : str.tostring(exitMinOfDay % 60)
+    row(6, "出场时刻", exH + ":" + exM + " ET")
+    row(7, "盘前盘后", rthOnly or warned ? "⚠ 未开启" : "✓ 已开启")
