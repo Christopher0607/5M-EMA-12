@@ -235,3 +235,110 @@ def test_holdout_selects_on_train_only():
     assert h["train_pnl"] == pytest.approx(200)
     assert h["test_pnl"] == pytest.approx(-100)
     assert h["test_best"] == "late"
+
+
+# ------------------------------------- TopStep: tiers, consistency, caps
+
+TS_50K = {"balance": 50000.0, "trailing_dd": 2000.0, "profit_target": 3000.0,
+          "trail_basis": "eod", "lock_at_initial": True, "daily_loss_limit": 1000.0,
+          "consistency_max_day_vs_target": 0.50}
+TS_FUNDED = {"balance": 50000.0, "trailing_dd": 2000.0, "trail_basis": "eod",
+             "lock_at_initial": True, "daily_loss_limit": 1000.0,
+             "min_trading_days": 5, "min_day_profit": 150.0, "safety_net": 50000.0,
+             "payout_cap": 2000.0, "capped_payouts": None,
+             "consistency_max_day_share": None,
+             "split_full_to": 0.0, "split_after": 0.9}
+
+
+def test_combine_consistency_blocks_a_pass_carried_by_one_day():
+    """Reaching the target is not enough if one day carried more than half of it."""
+    from src.propfirm import run_account
+    # +$2,000 in one day (66% of the $3,000 target) then +$1,100 spread out.
+    rows = [("big", 2000.0, 2000.0, 0.0)] + win(11, 100.0, "s")
+    r = run_account(days(rows), TS_50K, max_days=40)
+    assert r["outcome"] != "passed", "one day at 66% of target must block the pass"
+
+    no_rule = dict(TS_50K, consistency_max_day_vs_target=None)
+    assert run_account(days(rows), no_rule, max_days=40)["outcome"] == "passed"
+
+
+def test_combine_consistency_lets_a_balanced_run_pass():
+    from src.propfirm import run_account
+    rows = win(30, 200.0, "e")          # no day above 6.7% of the target
+    assert run_account(days(rows), TS_50K, max_days=40)["outcome"] == "passed"
+
+
+def test_topstep_caps_every_payout_not_just_the_first_three():
+    """capped_payouts: null means the cap always applies."""
+    r = run_funded(days(win(60, 900.0)), TS_FUNDED, ALL, 0.0, 0)
+    sizes = [p.gross for p in r["payouts"]]
+    assert len(sizes) >= 5
+    assert all(s <= 2000.0 + 1e-9 for s in sizes), "TopStep caps every payout"
+    assert all(p.capped for p in r["payouts"][:5]), "and they are flagged as capped"
+
+
+def test_flat_ninety_ten_split_applies_from_the_first_dollar():
+    r = run_funded(days(win(6, 400.0)), TS_FUNDED, ALL, 0.0, 0)
+    p = r["payouts"][0]
+    assert p.net == pytest.approx(p.gross * 0.9)
+
+
+def test_topstep_qualifying_day_threshold_is_150():
+    below = run_funded(days(win(10, 140.0)), TS_FUNDED, ALL, 0.0, 0)
+    assert below["payouts"] == [], "$140 days do not qualify"
+    above = run_funded(days(win(10, 160.0)), TS_FUNDED, ALL, 0.0, 0)
+    assert len(above["payouts"]) >= 1, "$160 days do"
+
+
+# ----------------------------------------------- risk bases and scaling
+
+TIERS = {
+    "50k":  {"balance": 50000.0,  "trailing_dd": 2000.0, "max_micros": 50},
+    "100k": {"balance": 100000.0, "trailing_dd": 3000.0, "max_micros": 100},
+    "150k": {"balance": 150000.0, "trailing_dd": 4500.0, "max_micros": 150},
+}
+
+
+def test_fixed_risk_gives_bigger_tiers_more_room():
+    from src.career import losses_to_bust
+    b = {"kind": "fixed", "value": 500.0}
+    assert losses_to_bust(TIERS["50k"], b) == pytest.approx(4.0)
+    assert losses_to_bust(TIERS["150k"], b) == pytest.approx(9.0)
+
+
+def test_pct_balance_makes_the_big_account_relatively_tighter():
+    """The finding worth surfacing: 1%-of-balance punishes the larger tier."""
+    from src.career import losses_to_bust
+    b = {"kind": "pct_balance", "value": 0.01}
+    assert losses_to_bust(TIERS["50k"], b) == pytest.approx(4.0)
+    assert losses_to_bust(TIERS["150k"], b) == pytest.approx(3.0)
+    assert losses_to_bust(TIERS["150k"], b) < losses_to_bust(TIERS["50k"], b)
+
+
+def test_pct_mll_holds_the_cushion_constant_across_tiers():
+    from src.career import losses_to_bust
+    b = {"kind": "pct_mll", "value": 0.25}
+    for t in TIERS.values():
+        assert losses_to_bust(t, b) == pytest.approx(4.0)
+
+
+def test_scaling_is_exactly_linear_under_a_flat_split():
+    from src.career import scale_accounts
+    rows = win(6, 600.0, "e") + win(40, 600.0, "f")
+    car = run_career(days(rows), APEX_E, APEX_F, ALL, NOFEE)
+    one = scale_accounts(car, 1)
+    five = scale_accounts(car, 5)
+    for k in ("payouts", "withdrawn", "fees_paid", "net_to_trader"):
+        assert five[k] == pytest.approx(one[k] * 5), f"{k} must scale exactly"
+
+
+def test_legacy_split_threshold_does_not_multiply_across_accounts():
+    """The $10k 100%-share is per trader, so five accounts do not get five of it."""
+    from src.career import scale_accounts
+    rows = win(6, 600.0, "e") + win(60, 600.0, "f")
+    car = run_career(days(rows), APEX_E, APEX_F, ALL, NOFEE)
+    flat = scale_accounts(car, 5, legacy_split_full_to=0.0)
+    legacy = scale_accounts(car, 5, legacy_split_full_to=10000.0, split_after=0.9)
+    one = scale_accounts(car, 1, legacy_split_full_to=10000.0, split_after=0.9)
+    assert legacy["withdrawn"] < one["withdrawn"] * 5, "threshold must not multiply"
+    assert legacy["withdrawn_gross"] == pytest.approx(one["withdrawn_gross"] * 5)

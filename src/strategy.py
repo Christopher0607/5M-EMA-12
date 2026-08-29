@@ -143,13 +143,24 @@ def build_windows(bars_1m: pd.DataFrame, cfg: dict) -> dict:
 
 def run(signals: pd.DataFrame, windows: dict, cfg: dict, sizing: Sizing, *,
         favorable_first: bool = False, trailing: bool = True,
-        use_stop: bool = True) -> pd.DataFrame:
-    """Backtest one configuration and return the trade log."""
+        use_stop: bool = True, risk_dollars: float | None = None,
+        max_contracts: int | None = None) -> pd.DataFrame:
+    """Backtest one configuration and return the trade log.
+
+    `risk_dollars` and `max_contracts` override the values in `cfg["account"]`,
+    so account tiers and risk bases can be swept from one call site without
+    mutating shared config. Omitted, they fall back to config and behaviour is
+    unchanged.
+    """
     c, a, k = cfg["contract"], cfg["account"], cfg["costs"]
     point_value = float(c["point_value"])
     tick = float(c["tick_size"])
-    risk_dollars = float(a["initial_capital"]) * float(a["risk_pct"])
-    max_contracts = int(a["max_contracts"])
+    if risk_dollars is None:
+        risk_dollars = float(a["initial_capital"]) * float(a["risk_pct"])
+    if max_contracts is None:
+        max_contracts = int(a["max_contracts"])
+    risk_dollars = float(risk_dollars)
+    max_contracts = int(max_contracts)
     slip = float(k["slippage_ticks"]) * tick
     commission = float(k["commission_rt"])
 

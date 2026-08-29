@@ -37,6 +37,12 @@ def run_account(days: pd.DataFrame, rules: dict, start_idx: int = 0,
     target = float(rules["profit_target"])
     dll = rules.get("daily_loss_limit")
     intraday = rules.get("trail_basis", "intraday") == "intraday"
+    # TopStep's Combine consistency rule gates *passing* the evaluation, not
+    # withdrawing: the best day must stay at or below a share of the profit
+    # target. A strategy with lumpy daily P&L can hit the target and still be
+    # held back by it, so it is enforced here rather than in the funded phase.
+    consistency_vs_target = rules.get("consistency_max_day_vs_target")
+    best_day = 0.0
     # Apex locks the threshold just above the start balance; TopStep locks at it.
     lock_at = balance + (100.0 if intraday else 0.0) if rules.get("lock_at_initial") else np.inf
 
@@ -70,7 +76,13 @@ def run_account(days: pd.DataFrame, rules: dict, start_idx: int = 0,
                     "reason": "trailing_drawdown"}
 
         equity = day_close
+        best_day = max(best_day, row.pnl)
         if equity >= balance + target:
+            if (consistency_vs_target is not None
+                    and best_day > float(consistency_vs_target) * target):
+                # Target reached but one day carried too much of it: keep
+                # trading until the rest of the record dilutes that day.
+                continue
             return {"outcome": "passed", "days": n, "final": equity,
                     "reason": "profit_target"}
 

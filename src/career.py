@@ -34,6 +34,7 @@ class Payout:
     gross: float        # withdrawn from the account
     net: float          # after the profit split
     balance_after: float
+    capped: bool = False   # the firm's cap, not the balance, limited this one
 
 
 @dataclass
@@ -93,7 +94,11 @@ def run_funded(days: pd.DataFrame, rules: dict, policy: dict, monthly_fee: float
     min_days = int(rules["min_trading_days"])
     min_day = float(rules["min_day_profit"])
     cap = rules.get("payout_cap")
-    capped_n = int(rules.get("capped_payouts") or 0)
+    # Apex caps only the first few withdrawals; TopStep caps every Standard-path
+    # payout. `capped_payouts: null` means "always", not "never".
+    capped_raw = rules.get("capped_payouts", 0)
+    capped_always = cap is not None and capped_raw is None
+    capped_n = 0 if capped_raw is None else int(capped_raw)
     consistency = rules.get("consistency_max_day_share")
     full_to = float(rules.get("split_full_to") or 0.0)
     after = float(rules.get("split_after") if rules.get("split_after") is not None else 1.0)
@@ -142,7 +147,10 @@ def run_funded(days: pd.DataFrame, rules: dict, policy: dict, monthly_fee: float
             if total > 0 and max(profit_days) / total > float(consistency):
                 continue        # one lumpy day blocks the payout until it dilutes
         gross = _payout_size(excess, policy)
-        if cap is not None and len(payouts) < capped_n:
+        hit_cap = False
+        if cap is not None and (capped_always or len(payouts) < capped_n):
+            if gross > float(cap):
+                hit_cap = True
             gross = min(gross, float(cap))
         if gross <= 0:
             continue
@@ -151,7 +159,7 @@ def run_funded(days: pd.DataFrame, rules: dict, policy: dict, monthly_fee: float
         net = _split(gross, taken, full_to, after)
         taken += gross
         payouts.append(Payout(day=start_idx + n, gross=gross, net=net,
-                              balance_after=balance))
+                              balance_after=balance, capped=hit_cap))
         qualifying = 0
         profit_days = []
 
@@ -206,6 +214,9 @@ def summarise_career(car: Career, days_total: int) -> dict:
         "avg_payout": float(np.mean(nets)) if nets else 0.0,
         "largest_payout": float(max(nets)) if nets else 0.0,
         "first_payout_day": car.payouts[0].day if car.payouts else None,
+        "capped_payouts": sum(1 for p in car.payouts if p.capped),
+        "capped_pct": (100.0 * sum(1 for p in car.payouts if p.capped) / len(car.payouts)
+                       if car.payouts else 0.0),
         "pct_time_funded": 100.0 * car.days_funded / max(days_total, 1),
         "days_funded": car.days_funded,
         "days_in_eval": car.days_in_eval,
@@ -229,3 +240,62 @@ def career_distribution(days: pd.DataFrame, eval_rules: dict, funded_rules: dict
         rec["start_date"] = days.iloc[i]["session_date"]
         rows.append(rec)
     return pd.DataFrame(rows)
+
+
+def risk_for(tier: dict, basis: dict) -> float:
+    """Per-trade dollar risk for an account tier under one risk basis.
+
+    This choice, not the account size, decides whether a bigger account helps.
+    A tier's MLL scales 2.25x from $50K to $150K while a 1%-of-balance risk
+    scales 3x, so under `pct_balance` the large account tolerates *fewer* full
+    losses than the small one.
+    """
+    kind = basis["kind"]
+    if kind == "fixed":
+        return float(basis["value"])
+    if kind == "pct_balance":
+        return float(tier["balance"]) * float(basis["value"])
+    if kind == "pct_mll":
+        return float(tier["trailing_dd"]) * float(basis["value"])
+    raise ValueError(f"unknown risk basis {kind!r}")
+
+
+def losses_to_bust(tier: dict, basis: dict) -> float:
+    """How many full stop-outs the tier absorbs before the loss limit is hit."""
+    return float(tier["trailing_dd"]) / risk_for(tier, basis)
+
+
+def scale_accounts(car: Career, n: int, legacy_split_full_to: float = 0.0,
+                   split_after: float = 0.9) -> dict:
+    """N identical funded accounts driven from one signal by a copier.
+
+    They are perfectly correlated: same trades, same equity path, same bust day.
+    Everything therefore multiplies exactly - payouts, withdrawals and fees alike
+    - and **there is no diversification at all**; N accounts do not survive any
+    longer than one, they just lose N times as much when they go.
+
+    Two things genuinely do not scale linearly:
+
+    * The payout cap is per account, so N accounts lift the income ceiling
+      N-fold. This is the only real reason to add accounts, and it only pays off
+      where the cap is actually binding.
+    * The legacy 100%-of-first-$10k split threshold is tracked per *trader*, so
+      it is claimed once across all accounts rather than once each. Under the
+      flat 90/10 that applies to traders joining after 2026-01-12 it is moot.
+    """
+    gross = sum(p.gross for p in car.payouts) * n
+    if legacy_split_full_to > 0:
+        at_full = min(gross, legacy_split_full_to)
+        net = at_full + (gross - at_full) * split_after
+    else:
+        net = sum(p.net for p in car.payouts) * n
+    fees = car.fees_paid * n
+    return {
+        "accounts": n,
+        "payouts": len(car.payouts) * n,
+        "withdrawn_gross": gross,
+        "withdrawn": net,
+        "fees_paid": fees,
+        "net_to_trader": net - fees,
+        "capped_payouts": sum(1 for p in car.payouts if p.capped) * n,
+    }
