@@ -617,6 +617,56 @@ footer{margin-top:72px;padding-top:20px;border-top:1px solid var(--rule);
 </section>
 
 <section>
+  <div class="sechead">
+    <div class="eyebrow">自动化</div>
+    <h2>哪家能自动跑——这推翻了上一节的平台推荐</h2>
+  </div>
+  <div class="callout">
+    <div class="lab">⚠ 更正：如果要自动化，Apex 不能用</div>
+    <p>上一节推荐 Apex，理由是它的最佳组合净到手最高（<b>$62,458</b>）。但查完自动化政策后：<b>Apex 允许在考试阶段用 bot，却禁止在资金账户上全自动交易</b>。也就是说那个 $62,458 <b>在全自动前提下拿不到</b>——资金阶段得手动盯。</p>
+    <p><b>Lucid 成为唯一答案</b>：经济上第二（$48,950），是四家里唯一<b>两个阶段都明文允许</b>自动化的，也是唯一把 TradingView 列为一级平台的。</p>
+  </div>
+  <div class="tw"><table>
+    <thead><tr><th class="l">平台</th><th class="l">考试阶段</th><th class="l">资金账户</th><th class="l">接入方式</th><th class="l">结论</th></tr></thead>
+    <tbody>
+      <tr class="hi"><td class="l">Lucid</td><td class="l">✅ 允许</td><td class="l">✅ 允许</td><td class="l">原生 TradingView；Python/Java/C++ API；TradersPost</td><td class="l"><b>首选</b></td></tr>
+      <tr><td class="l">TopStep</td><td class="l">✅ 允许</td><td class="l">✅ 允许</td><td class="l">TopstepX / ProjectX 官方 API；PickMyTrade</td><td class="l">备选</td></tr>
+      <tr><td class="l">Apex</td><td class="l">✅ 允许</td><td class="l"><span class="pill bad">❌ 禁止</span></td><td class="l">资金账户只能半自动</td><td class="l">全自动方案不可用</td></tr>
+      <tr><td class="l">Take Profit Trader</td><td class="l"><span class="pill bad">❌ 禁止</span></td><td class="l"><span class="pill bad">❌ 禁止</span></td><td class="l">明文禁止 bots</td><td class="l">排除</td></tr>
+    </tbody></table></div>
+  <p class="note">三家都禁止 HFT 和延迟套利——这个策略一天一笔，不沾边。政策会变，上线前务必自己再确认一次。</p>
+
+  <div class="sechead" style="border-top:0;padding-top:8px">
+    <div class="eyebrow">TradingView 脚本</div>
+    <h3 style="font-size:19px">图上会标记什么</h3>
+  </div>
+  <p class="prose">仓库里的 <code>pine/nq_ema12_open.pine</code> 是 Pine v6 策略脚本，完整复现回测逻辑：止损方式可切换（默认 0.5% 固定止损）、按 1% 风险自动算手数、15:35 时间出场、带可直接接 webhook 的 alert。</p>
+  <div class="grid2">
+    <div class="card">
+      <h3>图上的标记</h3>
+      <ul style="font-size:14px">
+        <li><b>黄色底纹</b> — 09:30–09:35 信号 K 线</li>
+        <li><b>三角箭头 + 标签</b> — 方向、手数、止损点数、本笔风险金额</li>
+        <li><b>红色横线</b> — 止损价，从入场画到出场</li>
+        <li><b>绿色方块 +「15:35 平仓」</b> — 时间出场，和止损明确区分</li>
+        <li><b>灰色叉</b> — 信号出现但算出 0 手而跳过</li>
+        <li><b>右上角表格</b> — 实时状态、止损距离、手数、风险、盘前盘后是否开启</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>没有止盈，这是刻意的</h3>
+      <p style="font-size:14px;color:var(--ink-2)">回测里的策略只有<b>止损</b>和<b>6 小时时间出场</b>，从来没有止盈。脚本如实复现，并把时间出场单独标记，避免看起来像止损。</p>
+      <p class="note">另外<b>止损不移动</b>——移动止损在消融实验里 4 配置 × 2 路径假设 = <b>8/8 全部垫底</b>。</p>
+    </div>
+  </div>
+  <div class="callout">
+    <div class="lab">⚠ 唯一会静默出错的设置：盘前盘后</div>
+    <p>EMA12 跑在 <b>24 小时连续盘</b>上。关掉盘前盘后，TradingView 只用 RTH K 线算 EMA，09:35 那根线的 EMA 值完全不同，<b>信号会变，而且不报任何错</b>。脚本会检查 09:30 前一根是不是 09:25，不是就在图上打红色警告并在状态表标出——这是写成运行时检查而不是文档里一句话的原因。</p>
+  </div>
+  <p class="prose">验证方式：跑 <code>scripts/export_tv_check.py</code> 生成 <code>results/tv_expected_trades.csv</code>，拿 TradingView 策略测试器的成交列表逐日核对<b>日期和方向</b>。<b>价格不会完全一致</b>——TradingView 的连续合约不是 Databento 的 <code>NQ.v.0</code>，Pine 的 K 线内成交约定也不是我用的「先到不利端」。差几个跳正常；<b>方向对不上就是图表设置错了</b>。</p>
+</section>
+
+<section>
   <div class="sechead"><div class="eyebrow">方法与验证</div><h2>这些数字是怎么保证没算错的</h2></div>
   <div class="grid2">
     <div class="card">

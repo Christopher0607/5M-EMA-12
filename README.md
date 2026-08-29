@@ -491,3 +491,61 @@ stop with <20pp path divergence), and execution discipline across 3,529 consecut
 Best combination earns **$62,458 over 16.2 years — about $3,855 a year** — and that is with
 hindsight knowledge of the best parameter. The walk-forward test says discount roughly a third.
 This is worth a small live validation, not a business plan.
+
+---
+
+# TradingView script and automation routing
+
+`pine/nq_ema12_open.pine` — Pine v6 strategy reproducing the backtest. Setup, inputs and alert
+wiring are in [`pine/README.md`](pine/README.md).
+
+## Which firm can actually run this automatically
+
+| Firm | Evaluation | Funded | Path |
+|---|---|---|---|
+| **Lucid** | allowed | **allowed** | native TradingView; Python/Java/C++ API; TradersPost |
+| **TopStep** | allowed | allowed | TopstepX / ProjectX official API; PickMyTrade |
+| Apex | allowed | **prohibited** | funded account bans fully autonomous bots |
+| Take Profit Trader | **prohibited** | **prohibited** | bots not permitted at all |
+
+**This reverses the platform recommendation above.** Apex produced the best career result
+($62,458), but it prohibits automation on the funded account — so that number is unreachable if you
+intend to automate; the funded phase would have to be traded by hand.
+
+**Lucid becomes the answer**: second best economically ($48,950), the only firm permitting
+automation in *both* phases, and the only one treating TradingView as a first-class platform.
+
+All three permissive firms ban HFT and latency arbitrage. One trade a day is nowhere near that.
+Policies change — verify before going live.
+
+## The script
+
+Switchable stop (percent-of-price, fixed points, ATR multiple), defaulting to the 0.5% fixed stop.
+Risk-based sizing at $500 per trade, capped per firm. Flat at 15:35 ET.
+
+**No take profit** — the tested design exits on the stop or the clock, and the time exit is drawn
+distinctly so it never reads as a stop-out. **The stop does not trail**, because trailing ranked
+last in 8 of 8 configurations.
+
+Marked on the chart: signal bar shading, direction arrows, a label with size / stop distance / risk
+dollars, the stop line, the time-exit marker, skipped signals, and a live status table.
+
+### The one setting that fails silently
+
+The EMA runs on the **24-hour continuous session**. With extended hours off, TradingView computes a
+different EMA and produces different signals **with no error**. The script checks whether the bar
+before the 09:30 signal bar is 09:25 and raises a visible warning — a runtime guard rather than a
+line of documentation, because this is the mistake that would quietly invalidate everything.
+
+### Verifying the script against the backtest
+
+```bash
+./.venv/bin/python scripts/export_tv_check.py --since 2025 --max-contracts 40
+```
+
+Compare the Strategy Tester's trade list against `results/tv_expected_trades.csv` on **date and
+direction**. Prices will not match — different continuous contract, different intrabar fill
+convention, different cost model. A few ticks of difference is expected; a **direction** mismatch
+means the chart is misconfigured, almost always extended hours.
+
+Reference: 415 trades in 2025-to-date, 215 short / 200 long, exits 225 time / 187 stop / 3 session end.
