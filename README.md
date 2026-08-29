@@ -386,3 +386,108 @@ more than the higher cap returns.
 TopStep is materially harder: `fixed N=2` passes 44.1% at Apex against 37% at TopStep once the
 Combine consistency rule is enforced, because of the $1,000 daily loss limit and that rule. Best
 single-account TopStep result (~$39.5k over 16 years) trails the best Apex result (~$50.6k).
+
+---
+
+# Four-firm comparison and execution playbook
+
+Run with `scripts/run_firms.py`. Adds **Lucid (LucidPro)** and **Take Profit Trader (PRO)**
+alongside Apex and TopStep, modelled on 2026 published terms.
+
+## The firms differ structurally, not just numerically
+
+| Firm | Eval drawdown | Funded drawdown | Daily loss | Split | Payout cap | Consistency |
+|---|---|---|---|---|---|---|
+| Apex | intraday high | intraday high | none | 100% to $25k | first 3 at $2,000 | 30% per cycle |
+| Lucid (LucidPro) | close | close, then locks | **soft — no bust** | 90/10 | none | 40% per cycle |
+| TopStep | close | close | hard — busts | 90/10 | $2,000/$3,000/$5,000 | 50% of target |
+| Take Profit Trader | close | **intraday high** | none (PRO) | 80/20 | none | 50% of lifetime |
+
+**TPT is the only firm that gets harder after you pass** — the evaluation trails end-of-day but
+the funded PRO account switches to intraday. Lucid is the opposite: the funded threshold stops
+following profits and its daily limit is a *soft* breach that only stops you trading for the day.
+
+## The three questions have three different answers
+
+Apex $50K, immediate withdrawal:
+
+| Goal | Strategy | Number | Cost |
+|---|---|---|---|
+| Pass fastest | `fixed N=1` | 60% pass rate ($50K), 73.7% ($150K) | nets only $17,481 |
+| Survive funded | `fixed N=1` | 52% two-year survival | same — earns little |
+| **Most money** | **`pct 0.5% fixed stop`** | **$58,176–62,458** | **0% two-year funded survival** |
+| Middle ground | `fixed N=2` | 54% pass, 19% survival | $22,672 |
+
+**The money-maximising strategy is the one that repeatedly blows the funded account.** It earns
+fast, withdraws, busts, and buys another evaluation. That is a real cost in fees and grind, not
+just a number.
+
+All three winners use a **non-trailing** stop. The trailing stop ranked last in 4 configs × 2 path
+assumptions — 8 of 8.
+
+## Smaller accounts win at three of four firms
+
+`pct 0.5% fixed stop`, immediate withdrawal, net to trader:
+
+| Tier | Apex | Lucid | TopStep | TPT |
+|---|---|---|---|---|
+| $50K | **$58,176** | **$48,950** | $2,670 | **$37,605** |
+| $100K | $24,686 | $41,306 | $17,650 | $17,087 |
+| $150K | $10,030 | $27,717 | **$39,525** | $18,239 |
+
+Profit targets scale **3×** across tiers while loss limits scale about **2×**, so a $150K needs
+proportionally more profit in proportionally less room. Median time to pass runs **16 days at $50K
+against 89 at $150K**, and a 16-year window therefore holds far fewer funded cycles. TopStep is the
+exception: its $50K pairs a worse target/MLL ratio (1.50 vs Apex's 1.20) with half the contract
+capacity (50 vs 100 micros).
+
+## Withdrawal timing is firm-specific
+
+| Firm | Best policy | Evidence |
+|---|---|---|
+| Apex | accumulate to $2,000 | $62,458 vs $58,176 immediate, but 81% hit the cap |
+| Lucid | immediate | $35,557; no payout cap, so take it early |
+| TopStep | immediate | $39,525 vs $15,511 accumulating — the cap makes waiting pointless |
+| **TPT** | **half, keep a buffer** | **$29,433 vs $19,175 immediate (+53%)** — funded is intraday-trailing |
+
+## Platform ranking
+
+| Firm | Best combo | Median | Best pass rate | Median days to pass |
+|---|---|---|---|---|
+| **Apex** | **$62,458** | $16,286 | 74% | 74 |
+| **Lucid** | $48,950 | **$20,623** | 69% | 78 |
+| TopStep | $39,525 | $11,857 | 69% | 77 |
+| TPT | $37,605 | $13,194 | 69% | 78 |
+
+**Apex has the highest ceiling; Lucid is the most consistent** and has the most forgiving rules.
+
+## Daily execution
+
+1. **Before 09:30 ET** — 5-minute chart with **extended hours on**, EMA(12). The backtest uses the
+   24-hour continuous session; an RTH-only chart gives different signals.
+2. **09:35:00 ET** — first 5-minute bar closes. Above EMA12 → market long; below → market short.
+   Exact tie → skip.
+3. **Place the stop immediately** at 0.5% of entry (~115 points with NQ at 23,000). Size =
+   $500 ÷ (stop points × $2), about 2 micros today. **Do not move it.**
+4. **15:35 ET** — flat if not stopped. Always inside the session, so no overnight gap risk.
+5. **One trade per day.** Every result here assumes exactly that.
+
+## Stop-loss criteria for the whole plan
+
+- **5 consecutive failed evaluations** — at a 34% pass rate that has a 12.5% chance of happening
+  by luck; beyond it, assume the regime no longer matches the backtest.
+- **Live drawdown exceeding 1.5× the backtest's worst for the same window** — the model is broken.
+- Fees spent with no first payout: the best combo's first payout lands on session **867**, but that
+  is inflated by 2010–2017 when the strategy earned nothing. Judge against post-2018 behaviour.
+
+## Not modelled
+
+Market impact (10 copied accounts = 1,500 MNQ into the open), rule changes (TopStep revised payouts
+in April 2026), the 1-minute resolution limit (which is why every recommendation above uses a wide
+stop with <20pp path divergence), and execution discipline across 3,529 consecutive sessions.
+
+## Honest summary
+
+Best combination earns **$62,458 over 16.2 years — about $3,855 a year** — and that is with
+hindsight knowledge of the best parameter. The walk-forward test says discount roughly a third.
+This is worth a small live validation, not a business plan.
