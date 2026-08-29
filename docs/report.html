@@ -1,0 +1,607 @@
+<title>5M EMA12 开盘策略回测</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Public+Sans:ital,wght@0,300..700;1,400&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  color-scheme: light;
+  --plane:#f2f4f7; --surface:#ffffff; --surface-2:#f7f9fb; --sunken:#eef1f5;
+  --ink:#101418; --ink-2:#4a5560; --ink-3:#7b8794;
+  --rule:#dde3ea; --rule-2:#c8d1db;
+  --blue:#2a78d6; --orange:#eb6834; --red:#e34948; --green:#0ca30c;
+  --blue-wash:rgba(42,120,214,.10); --red-wash:rgba(227,73,72,.10);
+  --warn-bg:#fff8e8; --warn-edge:#e0b64a; --warn-ink:#6b4d09;
+  --shadow:0 1px 2px rgba(16,20,24,.05),0 8px 24px -12px rgba(16,20,24,.18);
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+  --sans:"Public Sans","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",system-ui,sans-serif;
+  --disp:"Bricolage Grotesque","PingFang SC","Hiragino Sans GB","Microsoft YaHei",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --plane:#0b0e12; --surface:#151a20; --surface-2:#1b212a; --sunken:#10151b;
+    --ink:#f2f5f8; --ink-2:#b3bec9; --ink-3:#7d8894;
+    --rule:#28313c; --rule-2:#38434f;
+    --blue:#3987e5; --orange:#d95926; --red:#e66767; --green:#0ca30c;
+    --blue-wash:rgba(57,135,229,.16); --red-wash:rgba(230,103,103,.16);
+    --warn-bg:#2a2312; --warn-edge:#8a6f22; --warn-ink:#f0d48c;
+    --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --plane:#0b0e12; --surface:#151a20; --surface-2:#1b212a; --sunken:#10151b;
+  --ink:#f2f5f8; --ink-2:#b3bec9; --ink-3:#7d8894;
+  --rule:#28313c; --rule-2:#38434f;
+  --blue:#3987e5; --orange:#d95926; --red:#e66767; --green:#0ca30c;
+  --blue-wash:rgba(57,135,229,.16); --red-wash:rgba(230,103,103,.16);
+  --warn-bg:#2a2312; --warn-edge:#8a6f22; --warn-ink:#f0d48c;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 8px 24px -12px rgba(0,0,0,.7);
+}
+*{box-sizing:border-box}
+body{background:var(--plane);color:var(--ink);font-family:var(--sans);
+  font-size:16px;line-height:1.65;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:48px 24px 96px}
+.prose{max-width:70ch}
+h1,h2,h3{font-family:var(--disp);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(30px,4.6vw,46px);font-weight:700;letter-spacing:-.02em}
+h2{font-size:clamp(21px,2.6vw,27px);font-weight:650;letter-spacing:-.01em}
+h3{font-size:17px;font-weight:650}
+p{margin:0}
+.eyebrow{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-3)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+header{border-bottom:2px solid var(--ink);padding-bottom:22px;margin-bottom:40px;
+  display:flex;flex-direction:column;gap:12px}
+.meta{display:flex;flex-wrap:wrap;gap:8px 22px;font-family:var(--mono);font-size:12px;color:var(--ink-2)}
+.meta b{color:var(--ink);font-weight:600}
+section{margin-top:56px;display:flex;flex-direction:column;gap:18px}
+.sechead{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--rule-2);padding-top:14px}
+
+/* verdict */
+.verdict{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  box-shadow:var(--shadow);overflow:hidden}
+.verdict-top{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);gap:0}
+@media(max-width:720px){.verdict-top{grid-template-columns:1fr}}
+.vfig{padding:30px 28px;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:8px;
+  background:var(--red-wash)}
+@media(max-width:720px){.vfig{border-right:0;border-bottom:1px solid var(--rule)}}
+.vbig{font-family:var(--mono);font-size:clamp(44px,8vw,68px);font-weight:600;line-height:1;
+  letter-spacing:-.03em;color:var(--red);font-variant-numeric:tabular-nums}
+.vsub{font-size:13.5px;color:var(--ink-2)}
+.vbridge{padding:26px 28px;display:flex;flex-direction:column;gap:12px;justify-content:center}
+.bridge-row{display:grid;grid-template-columns:1fr auto;gap:14px;align-items:baseline;
+  font-family:var(--mono);font-size:14px;font-variant-numeric:tabular-nums}
+.bridge-row span:first-child{font-family:var(--sans);font-size:13.5px;color:var(--ink-2)}
+.bridge-row.tot{border-top:1px solid var(--rule);padding-top:11px;font-weight:600}
+.bridge-row .neg{color:var(--red)}
+
+/* stats */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));
+  border-top:1px solid var(--rule)}
+.stat{padding:15px 18px;border-right:1px solid var(--rule);display:flex;flex-direction:column;gap:3px}
+.stat:last-child{border-right:0}
+.stat .k{font-size:11.5px;color:var(--ink-3);letter-spacing:.02em}
+.stat .v{font-family:var(--mono);font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+
+/* callout */
+.callout{background:var(--warn-bg);border:1px solid var(--warn-edge);border-left-width:4px;
+  border-radius:3px;padding:20px 22px;display:flex;flex-direction:column;gap:10px}
+.callout .lab{font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.12em;
+  text-transform:uppercase;color:var(--warn-ink)}
+.callout p{color:var(--ink);font-size:14.5px}
+
+/* cards + charts */
+.card{background:var(--surface);border:1px solid var(--rule);border-radius:3px;
+  padding:20px 22px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:6px}
+.card .ct{font-family:var(--disp);font-size:15.5px;font-weight:650}
+.card .cs{font-size:13px;color:var(--ink-2)}
+.chart{width:100%;position:relative;margin-top:8px}
+.chart svg{display:block;width:100%;height:auto;overflow:visible}
+.legend{display:flex;flex-wrap:wrap;gap:16px;margin-top:10px;font-size:12.5px;color:var(--ink-2)}
+.legend i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:6px;
+  vertical-align:-1px}
+.tip{position:absolute;pointer-events:none;opacity:0;transition:opacity .1s;
+  background:var(--surface);border:1px solid var(--rule-2);border-radius:3px;padding:7px 10px;
+  font-family:var(--mono);font-size:11.5px;line-height:1.5;box-shadow:var(--shadow);
+  white-space:nowrap;z-index:5;font-variant-numeric:tabular-nums;color:var(--ink)}
+
+/* tables */
+.tw{overflow-x:auto;border:1px solid var(--rule);border-radius:3px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13px}
+th,td{padding:8px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--rule)}
+th{background:var(--sunken);font-size:11px;font-weight:600;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--ink-2);position:sticky;top:0}
+td:first-child,th:first-child,td.l,th.l{text-align:left}
+tbody tr:last-child td{border-bottom:0}
+tbody tr:hover{background:var(--surface-2)}
+td.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.neg{color:var(--red)} .pos{color:var(--blue)}
+tr.hi td{background:var(--blue-wash);font-weight:600}
+tr.dim td{color:var(--ink-3)}
+.pill{display:inline-block;font-family:var(--mono);font-size:10.5px;font-weight:600;
+  padding:1px 7px;border-radius:99px;border:1px solid currentColor;letter-spacing:.04em}
+.pill.bad{color:var(--red)} .pill.ok{color:var(--blue)} .pill.warn{color:var(--warn-ink);
+  background:var(--warn-bg)}
+ul{margin:0;padding-left:1.15em;display:flex;flex-direction:column;gap:7px}
+li::marker{color:var(--ink-3)}
+code{font-family:var(--mono);font-size:.9em;background:var(--sunken);padding:1px 5px;
+  border-radius:2px;border:1px solid var(--rule)}
+.note{font-size:12.5px;color:var(--ink-3)}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:820px){.grid2{grid-template-columns:1fr}}
+footer{margin-top:72px;padding-top:20px;border-top:1px solid var(--rule);
+  font-size:12.5px;color:var(--ink-3);display:flex;flex-direction:column;gap:6px}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+<header>
+  <div class="eyebrow">Nasdaq 期货 · 纽约开盘 5 分钟 · 全历史回测</div>
+  <h1>收在 EMA12 上方做多，下方做空</h1>
+  <div class="meta">
+    <span><b>NQ.v.0</b> CME Globex</span>
+    <span><b>2010-06-07</b> → <b>2026-08-28</b></span>
+    <span><b>3,529</b> 笔交易</span>
+    <span><b>481 万</b>根 1 分钟 K 线</span>
+    <span>$50K · MNQ 微型 · 每笔风险 1%</span>
+  </div>
+</header>
+
+<div class="prose" style="display:flex;flex-direction:column;gap:14px">
+  <p>按你的原始设定回测：纽约开盘第一根 5 分钟 K 线（09:30–09:35 ET）收在 EMA12 上方做多、下方做空，移动止损，止损金额 = 初始资金的 1%，最多持仓 6 小时。</p>
+  <p>下面是 16.2 年全部数据的结果。<b>先说结论：策略本身有微弱正期望，但移动止损和手续费把它吃干净了。</b></p>
+</div>
+
+<section>
+  <div class="verdict">
+    <div class="verdict-top">
+      <div class="vfig">
+        <div class="eyebrow">全部回报率 · ATR 归一化 k=1</div>
+        <div class="vbig" id="v-ret">−67.4%</div>
+        <div class="vsub">$50,000 起始 → 净亏 <span class="num" id="v-pnl">$33,688</span>，年化 <span class="num">−4.2%</span></div>
+      </div>
+      <div class="vbridge">
+        <div class="eyebrow">钱去哪了</div>
+        <div class="bridge-row"><span>毛利（未扣成本）</span><span class="pos">+$12,159</span></div>
+        <div class="bridge-row"><span>手续费 3,529 笔 × 均 9.7 手</span><span class="neg">−$45,847</span></div>
+        <div class="bridge-row tot"><span>净利</span><span class="neg">−$33,688</span></div>
+        <p class="note" style="margin-top:2px">手续费是毛利的 <b>3.8 倍</b>。止损越紧 → 手数越大 → 手续费越高。</p>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat"><span class="k">胜率</span><span class="v">34.5%</span></div>
+      <div class="stat"><span class="k">盈亏比 PF</span><span class="v">0.90</span></div>
+      <div class="stat"><span class="k">最大回撤</span><span class="v neg">−$34,079</span></div>
+      <div class="stat"><span class="k">Sharpe</span><span class="v neg">−0.51</span></div>
+      <div class="stat"><span class="k">每笔期望</span><span class="v neg">−$9.55</span></div>
+      <div class="stat"><span class="k">止损出场</span><span class="v">100%</span></div>
+    </div>
+  </div>
+  <p class="note">「止损出场 100%」意味着 <b>6 小时持仓上限从未触发过</b>——ATR k=1 的移动止损太紧，3,529 笔全部在 6 小时内被扫掉。</p>
+</section>
+
+<section>
+  <div class="sechead">
+    <div class="eyebrow">最重要的限制</div>
+    <h2>这个 −67.4% 不能当成精确数字</h2>
+  </div>
+  <div class="callout">
+    <div class="lab">⚠ 数据分辨率不足</div>
+    <p>1 分钟 K 线只给出开高低收，<b>无法知道最高价和最低价谁先发生</b>。对移动止损来说这个顺序直接决定结果。我把两种极端假设都跑了：保守（先到不利端）得 <span class="num">−67.4%</span>，乐观（先到有利端）得 <span class="num">−430.2%</span>——差 <b>363 个百分点</b>。</p>
+    <p>原因在下图：<b>ATR k=1 的止损距离，在过去 17 年每一年都只有 1 分钟 K 线波幅的 1.6–2.1 倍</b>。止损点位埋在单根 K 线的噪音里，1 分钟数据从原理上就分辨不了。</p>
+  </div>
+  <div class="card">
+    <div class="ct">止损距离 vs 1 分钟 K 线波幅（各年中位数，点）</div>
+    <div class="cs">两条线始终贴在一起——这不是某一年的巧合，是这个策略设定的固有属性。</div>
+    <div class="chart" id="c-res"><div class="tip" id="t-res"></div></div>
+    <div class="legend">
+      <span><i style="background:var(--orange)"></i>1 分钟 K 线波幅</span>
+      <span><i style="background:var(--blue)"></i>ATR k=1 止损距离</span>
+      <span style="color:var(--ink-3)">比值全期间 1.6–2.1×（需 ≥3× 才勉强可分辨）</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="ct">路径分歧 vs 止损距离</div>
+    <div class="cs">止损越宽，两种假设越一致，结论越可信。止损越窄，分歧爆炸。</div>
+    <div class="chart" id="c-div"><div class="tip" id="t-div"></div></div>
+    <div class="legend"><span style="color:var(--ink-3)">每个点是一个配置；纵轴为两种路径假设的回报率之差（百分点，绝对值，对数刻度）</span></div>
+  </div>
+  <p class="prose">所以下面的分析我只把 <b>分歧 &lt; 20pp 的配置</b>当作可信数字。紧止损的那几行，方向（亏钱）是稳的，但幅度不要当真。</p>
+</section>
+
+<section>
+  <div class="sechead">
+    <div class="eyebrow">你的核心假设</div>
+    <h2>「the stop held the drawdown together」——对，但代价是全部收益</h2>
+  </div>
+  <p class="prose">我用同一批信号跑了三种出场规则：移动止损、固定止损（不移动）、完全不止损只用 6 小时时间出场。这是直接检验你那句话的实验。</p>
+  <div class="card">
+    <div class="ct">同一批信号，三种出场规则</div>
+    <div class="cs">净利（柱）与最大回撤（灰线标记）</div>
+    <div class="chart" id="c-abl"><div class="tip" id="t-abl"></div></div>
+    <div class="legend">
+      <span><i style="background:var(--blue)"></i>移动止损</span>
+      <span><i style="background:var(--orange)"></i>固定止损</span>
+      <span><i style="background:var(--ink-3)"></i>不止损（仅 6 小时）</span>
+    </div>
+  </div>
+  <div class="grid2">
+    <div class="card">
+      <h3>你说对的部分</h3>
+      <p style="font-size:14px;color:var(--ink-2)">移动止损确实压住了回撤，而且幅度不小：</p>
+      <div class="tw" style="box-shadow:none;margin-top:6px"><table>
+        <thead><tr><th class="l">配置</th><th>移动止损回撤</th><th>不止损回撤</th></tr></thead>
+        <tbody>
+          <tr><td class="l">ATR k=1</td><td class="n">−$34,079</td><td class="n neg">−$68,799</td></tr>
+          <tr><td class="l">ATR k=3</td><td class="n">−$18,836</td><td class="n neg">−$37,247</td></tr>
+          <tr><td class="l">pct 0.5%</td><td class="n">−$14,190</td><td class="n neg">−$30,945</td></tr>
+        </tbody></table></div>
+      <p class="note">回撤大约<b>减半</b>。这部分你的直觉是准的。</p>
+    </div>
+    <div class="card">
+      <h3>但代价没被看见</h3>
+      <p style="font-size:14px;color:var(--ink-2)">在 <b>4 个配置 × 2 种路径假设 = 8/8 全部</b>，移动止损都是三种规则里最差的：</p>
+      <div class="tw" style="box-shadow:none;margin-top:6px"><table>
+        <thead><tr><th class="l">配置</th><th>移动</th><th>固定</th><th>不止损</th></tr></thead>
+        <tbody>
+          <tr><td class="l">ATR k=1</td><td class="n neg">−33.7k</td><td class="n">+179k</td><td class="n pos">+339k</td></tr>
+          <tr><td class="l">ATR k=4</td><td class="n">+52.2k</td><td class="n">+98.3k</td><td class="n pos">+122k</td></tr>
+          <tr><td class="l">pct 0.5%</td><td class="n">+39.3k</td><td class="n">+70.6k</td><td class="n pos">+114k</td></tr>
+          <tr><td class="l">fixed N=2</td><td class="n">+52.6k</td><td class="n">+71.9k</td><td class="n pos">+77.6k</td></tr>
+        </tbody></table></div>
+      <p class="note">排序 <b>移动 &lt; 固定 &lt; 不止损</b> 无一例外。移动止损把还会继续走的单子提前砍掉了。</p>
+    </div>
+  </div>
+  <p class="prose">值得注意：固定止损和不止损这两列，在两种路径假设下数值<b>完全相同</b>——因为它们不在 K 线内移动，没有路径歧义。只有移动止损对路径敏感。所以「移动止损最差」这个结论本身是干净的，不受分辨率问题影响。</p>
+</section>
+
+<section>
+  <div class="sechead"><div class="eyebrow">参数扫描</div><h2>三种止损定义，14 个配置</h2></div>
+  <p class="prose">这是<b>敏感度分析，不是参数优化</b>。在单一数据集上挑最好的一格来汇报就是过拟合。蓝底行是可信配置（路径分歧小），灰字行的幅度不可信。</p>
+  <div class="tw"><table id="t-sweep">
+    <thead><tr><th class="l">变体</th><th class="l">参数</th><th>均止损点</th><th>保守路径</th><th>乐观路径</th><th>分歧</th><th>胜率</th><th>PF</th><th>最大回撤</th><th>手续费</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+  <p class="note">「fixed」= 你原话的字面版：固定手数 N，止损距离 = $500÷(N×$2)。N=1 就是 250 点止损——2010 年 NQ 在 1,800 点时那是 14%，几乎永不触发；今天 NQ 23,000 点时是 1.1%。同一条规则在不同年代是完全不同的策略，这就是我把 ATR 归一化当作主口径的原因。</p>
+</section>
+
+<section>
+  <div class="sechead"><div class="eyebrow">资金曲线</div><h2>主口径 vs 扫描中表现最好的配置</h2></div>
+  <div class="card">
+    <div class="chart" id="c-eq"><div class="tip" id="t-eq"></div></div>
+    <div class="legend">
+      <span><i style="background:var(--blue)"></i>ATR k=1（主口径，按你的设定）</span>
+      <span><i style="background:var(--orange)"></i>fixed N=2（扫描最佳）</span>
+      <span style="color:var(--ink-3)">虚线 = $50,000 起始资金</span>
+    </div>
+  </div>
+  <div class="card">
+    <div class="ct">逐年净利 · ATR k=1</div>
+    <div class="chart" id="c-yr"><div class="tip" id="t-yr"></div></div>
+    <div class="legend"><span><i style="background:var(--blue)"></i>盈利年</span><span><i style="background:var(--red)"></i>亏损年</span></div>
+  </div>
+  <p class="prose">明显的三段：<b>2010–2018 连续 9 年全亏</b>，2019–2022 转正，<b>2023–2026 又转亏</b>。2025 年 −15.2%、2026 年至今 −12.1% 是全期最差。没有稳定的边际。</p>
+</section>
+
+<section>
+  <div class="sechead"><div class="eyebrow">Propfirm 成绩</div><h2>在考核账户里能不能活下来</h2></div>
+  <p class="prose">这是你真正问的问题。做法：<b>在历史上每一个交易日都开一个全新考核账户</b>，跑到过关、爆仓或 250 个交易日上限为止。单一起始日只是一条路径，说明不了什么；全历史滚动才是真实面对的分布。</p>
+  <div class="tw"><table id="t-prop">
+    <thead><tr><th class="l">配置</th><th class="l">规则</th><th>账户数</th><th>过关</th><th>爆仓</th><th>未决</th><th>通过率</th><th>过关中位天数</th><th>爆仓中位天数</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+  <div class="grid2">
+    <div class="card">
+      <h3>按你的原设定（ATR k=1）</h3>
+      <p style="font-size:14px;color:var(--ink-2)">3,528 个账户里 <b class="neg">3,119 个爆仓</b>，通过率 <b class="neg">11.1%</b>（Apex）／<b class="neg">10.4%</b>（TopStep）。爆仓中位数 93 个交易日。</p>
+      <p class="note">按 Apex $50K 考核费约 $150/次算，期望要试约 9 次才过一次。</p>
+    </div>
+    <div class="card">
+      <h3>扫描最佳（fixed N=2）</h3>
+      <p style="font-size:14px;color:var(--ink-2)">通过率 <b>53.1%</b>（Apex）／<b>44.1%</b>（TopStep）。但这个配置本质是「125 点固定止损 + 2 手」，已经不太算移动止损了——它 67% 的单子是<b>时间出场</b>不是止损出场。</p>
+      <p class="note">而且它在早年（NQ 低价位）几乎不触发止损，属于前面说的非平稳问题。</p>
+    </div>
+  </div>
+  <p class="prose">两套规则我都实现了：<b>Apex</b> 的回撤阈值跟随<b>盘中最高</b>权益（$2,500），<b>TopStep</b> 跟随<b>收盘</b>余额（$2,000）外加 $1,000 日亏上限。两者的阈值都会在触及起始余额后锁定。</p>
+</section>
+
+<section>
+  <div class="sechead"><div class="eyebrow">方法与验证</div><h2>这些数字是怎么保证没算错的</h2></div>
+  <div class="grid2">
+    <div class="card">
+      <h3>数据层面的两个修正</h3>
+      <ul style="font-size:14px">
+        <li><b>用 NQ.v.0 而不是 NQ.c.0。</b>按到期日排的连续合约在交割周会卡在快死的老合约里：2024-09-20 开盘那小时 <code>.c.0</code> 只有 <b>380 手</b>，<code>.v.0</code> 有 <b>68,278 手</b>，收盘价差 190 点。用前者回测成交价是假的。</li>
+        <li><b>只在 NYSE 真正开市日交易。</b>CME 在 Juneteenth、劳工节、感恩节等 NYSE 假期照常交易，但量只有平日的 1–8%。那些天没有「纽约开盘」，策略前提不成立。2024 年信号数从 255 修正到 <b>正好 252</b>。</li>
+      </ul>
+    </div>
+    <div class="card">
+      <h3>引擎验证</h3>
+      <ul style="font-size:14px">
+        <li><b>35 个单元测试</b>：EMA12 与 ATR14 逐项对照手算递推；移动止损在合成 K 线上验证棘轮上移、永不下移、跳空穿越按开盘价成交。</li>
+        <li><b>夏令时断言</b>：信号 K 线按纽约本地时间用 <code>zoneinfo</code> 定位，测试断言同一个 09:30 ET 在夏冬分别落到 13:30Z 和 14:30Z。</li>
+        <li><b>独立复算</b>：<code>spot_check.py</code> 刻意不导入交易引擎，直接用原始 1 分钟 K 线重算信号、EMA 比较和移动止损。抽查交易<b>逐笔完全吻合</b>。</li>
+      </ul>
+    </div>
+  </div>
+  <div class="card">
+    <div class="ct">成本假设</div>
+    <div class="cs">每微型合约往返 $1.34（Apex 口径，含交易所与 NFA 费），进出各 1 跳滑点（0.25 点 = $0.50/手）。两项都做了敏感度扫描。开盘市价单进场、止损市价单出场，滑点假设已偏乐观。</div>
+  </div>
+</section>
+
+<section>
+  <div class="sechead"><div class="eyebrow">建议</div><h2>如果要继续做，我会往哪走</h2></div>
+  <ul class="prose" style="font-size:15px">
+    <li><b>先别用移动止损。</b>8/8 的证据说它是净负贡献。若要控回撤，固定止损在每个配置里都更好，而且没有路径歧义。</li>
+    <li><b>手数是第一杠杆，不是止损参数。</b>主口径亏的 $33.7k 里，手续费占 $45.8k。同样的信号在 fixed N=1（1 手）下手续费只有 $4.7k，净利 +$37k。1% 风险规则强迫在紧止损时上大手数，这是亏损的机械成因。</li>
+    <li><b>要把紧止损问题回答清楚，需要更细的数据。</b>1 秒级 OHLCV 全历史约 $468；只买最近 5 年的盘中时段大约 $35–40 就能把 ATR k≤2 那几行的分歧收敛掉。要不要买你定。</li>
+    <li><b>信号本身值得单独研究。</b>剥掉止损后，纯 6 小时持有在多个配置下都是显著正收益（ATR k=1 手数下 +$339k）。但那个版本回撤 −$68.8k，任何 propfirm 账户都撑不住——所以问题是「怎么在不杀死收益的前提下控回撤」，而不是「移动止损调多少」。</li>
+  </ul>
+</section>
+
+<footer>
+  <div>数据：Databento <code>GLBX.MDP3</code> · <code>NQ.v.0</code> · <code>ohlcv-1m</code> · 2010-06-06 → 2026-08-29 · 本次数据花费 $18.83</div>
+  <div>全部代码、测试与结果表：分支 <code>claude/nasdaq-ema12-backtest-f88tki</code>。回测可完全复现：<code>scripts/fetch_data.py</code> → <code>scripts/run_backtest.py</code>。</div>
+  <div>历史回测不预示未来表现。本页是策略研究记录，不构成投资建议。</div>
+</footer>
+</div>
+
+<script id="payload" type="application/json">{"eq_head": [["2010-06", 49771], ["2010-07", 49673], ["2010-08", 49551], ["2010-09", 49392], ["2010-10", 49399], ["2010-11", 49118], ["2010-12", 49105], ["2011-01", 49248], ["2011-02", 49184], ["2011-03", 48897], ["2011-04", 48505], ["2011-05", 48152], ["2011-06", 47895], ["2011-07", 47707], ["2011-08", 47790], ["2011-09", 47551], ["2011-10", 47429], ["2011-11", 47557], ["2011-12", 47438], ["2012-01", 47511], ["2012-02", 47358], ["2012-03", 47199], ["2012-04", 47142], ["2012-05", 46974], ["2012-06", 46845], ["2012-07", 46650], ["2012-08", 46377], ["2012-09", 45803], ["2012-10", 45180], ["2012-11", 44924], ["2012-12", 44905], ["2013-01", 44580], ["2013-02", 44301], ["2013-03", 43847], ["2013-04", 43466], ["2013-05", 43011], ["2013-06", 42513], ["2013-07", 42011], ["2013-08", 42117], ["2013-09", 41519], ["2013-10", 41250], ["2013-11", 40850], ["2013-12", 40744], ["2014-01", 40371], ["2014-02", 40331], ["2014-03", 40166], ["2014-04", 40593], ["2014-05", 40355], ["2014-06", 40090], ["2014-07", 39501], ["2014-08", 39174], ["2014-09", 38981], ["2014-10", 38255], ["2014-11", 37678], ["2014-12", 37425], ["2015-01", 37367], ["2015-02", 36968], ["2015-03", 36849], ["2015-04", 36694], ["2015-05", 36176], ["2015-06", 36431], ["2015-07", 36145], ["2015-08", 35148], ["2015-09", 34695], ["2015-10", 34321], ["2015-11", 34290], ["2015-12", 33700], ["2016-01", 33675], ["2016-02", 33632], ["2016-03", 33258], ["2016-04", 32926], ["2016-05", 32710], ["2016-06", 32850], ["2016-07", 32272], ["2016-08", 32194], ["2016-09", 31992], ["2016-10", 31926], ["2016-11", 31100], ["2016-12", 31243], ["2017-01", 31515], ["2017-02", 31191], ["2017-03", 31067], ["2017-04", 30718], ["2017-05", 30293], ["2017-06", 29798], ["2017-07", 29300], ["2017-08", 28947], ["2017-09", 28969], ["2017-10", 28539], ["2017-11", 28733], ["2017-12", 29005], ["2018-01", 28208], ["2018-02", 27825], ["2018-03", 26629], ["2018-04", 26632], ["2018-05", 26013], ["2018-06", 26066], ["2018-07", 26405], ["2018-08", 26092], ["2018-09", 26122], ["2018-10", 26359], ["2018-11", 26267], ["2018-12", 25213], ["2019-01", 25401], ["2019-02", 25282], ["2019-03", 24995], ["2019-04", 25074], ["2019-05", 26304], ["2019-06", 26441], ["2019-07", 26941], ["2019-08", 26807], ["2019-09", 26259], ["2019-10", 25055], ["2019-11", 24697], ["2019-12", 25866], ["2020-01", 26240], ["2020-02", 27129], ["2020-03", 31511], ["2020-04", 33803], ["2020-05", 34850], ["2020-06", 35560], ["2020-07", 37139], ["2020-08", 35602], ["2020-09", 34357], ["2020-10", 33457], ["2020-11", 31758], ["2020-12", 30703], ["2021-01", 31549], ["2021-02", 33035], ["2021-03", 31694], ["2021-04", 30953], ["2021-05", 31200], ["2021-06", 33545], ["2021-07", 33838], ["2021-08", 35079], ["2021-09", 34117], ["2021-10", 33846], ["2021-11", 34155], ["2021-12", 32339], ["2022-01", 32250], ["2022-02", 30624], ["2022-03", 30715], ["2022-04", 29805], ["2022-05", 34323], ["2022-06", 35152], ["2022-07", 37682], ["2022-08", 34806], ["2022-09", 32855], ["2022-10", 32751], ["2022-11", 32243], ["2022-12", 32859], ["2023-01", 31122], ["2023-02", 31067], ["2023-03", 31991], ["2023-04", 34826], ["2023-05", 35187], ["2023-06", 33045], ["2023-07", 32437], ["2023-08", 31890], ["2023-09", 32522], ["2023-10", 33302], ["2023-11", 33265], ["2023-12", 31667], ["2024-01", 30821], ["2024-02", 29253], ["2024-03", 29217], ["2024-04", 30240], ["2024-05", 29658], ["2024-06", 27395], ["2024-07", 24376], ["2024-08", 21536], ["2024-09", 23559], ["2024-10", 24324], ["2024-11", 27678], ["2024-12", 29947], ["2025-01", 27968], ["2025-02", 27430], ["2025-03", 27509], ["2025-04", 27737], ["2025-05", 28527], ["2025-06", 28657], ["2025-07", 25603], ["2025-08", 22785], ["2025-09", 21238], ["2025-10", 22638], ["2025-11", 23230], ["2025-12", 22343], ["2026-01", 21720], ["2026-02", 23541], ["2026-03", 23267], ["2026-04", 19474], ["2026-05", 22685], ["2026-06", 22200], ["2026-07", 18040], ["2026-08", 16312]], "eq_best": [["2010-06", 49898], ["2010-07", 49738], ["2010-08", 49512], ["2010-09", 49398], ["2010-10", 49276], ["2010-11", 49174], ["2010-12", 49123], ["2011-01", 49178], ["2011-02", 49203], ["2011-03", 48897], ["2011-04", 48809], ["2011-05", 48925], ["2011-06", 48887], ["2011-07", 48723], ["2011-08", 48553], ["2011-09", 48342], ["2011-10", 48743], ["2011-11", 48674], ["2011-12", 48484], ["2012-01", 48391], ["2012-02", 48172], ["2012-03", 48203], ["2012-04", 48169], ["2012-05", 48410], ["2012-06", 48461], ["2012-07", 48195], ["2012-08", 47808], ["2012-09", 47575], ["2012-10", 47094], ["2012-11", 47311], ["2012-12", 47449], ["2013-01", 47215], ["2013-02", 46980], ["2013-03", 46712], ["2013-04", 46656], ["2013-05", 46917], ["2013-06", 46829], ["2013-07", 46711], ["2013-08", 46594], ["2013-09", 46454], ["2013-10", 46617], ["2013-11", 46496], ["2013-12", 46435], ["2014-01", 46386], ["2014-02", 46435], ["2014-03", 46852], ["2014-04", 47385], ["2014-05", 47360], ["2014-06", 47517], ["2014-07", 47712], ["2014-08", 47465], ["2014-09", 47402], ["2014-10", 47032], ["2014-11", 46889], ["2014-12", 45670], ["2015-01", 44669], ["2015-02", 44522], ["2015-03", 44668], ["2015-04", 44986], ["2015-05", 44557], ["2015-06", 44712], ["2015-07", 44758], ["2015-08", 44136], ["2015-09", 45868], ["2015-10", 44997], ["2015-11", 45312], ["2015-12", 46773], ["2016-01", 47585], ["2016-02", 48010], ["2016-03", 49087], ["2016-04", 49527], ["2016-05", 49530], ["2016-06", 49174], ["2016-07", 48356], ["2016-08", 48048], ["2016-09", 49087], ["2016-10", 49253], ["2016-11", 50058], ["2016-12", 50518], ["2017-01", 50442], ["2017-02", 50653], ["2017-03", 49818], ["2017-04", 49643], ["2017-05", 50217], ["2017-06", 51392], ["2017-07", 51221], ["2017-08", 51080], ["2017-09", 51702], ["2017-10", 51243], ["2017-11", 51615], ["2017-12", 52282], ["2018-01", 51134], ["2018-02", 52589], ["2018-03", 52442], ["2018-04", 52582], ["2018-05", 52166], ["2018-06", 51929], ["2018-07", 53712], ["2018-08", 54297], ["2018-09", 54245], ["2018-10", 58095], ["2018-11", 58817], ["2018-12", 59597], ["2019-01", 60638], ["2019-02", 60420], ["2019-03", 59601], ["2019-04", 59745], ["2019-05", 58711], ["2019-06", 58827], ["2019-07", 59961], ["2019-08", 60804], ["2019-09", 62098], ["2019-10", 62067], ["2019-11", 61773], ["2019-12", 61999], ["2020-01", 63717], ["2020-02", 65185], ["2020-03", 66370], ["2020-04", 66057], ["2020-05", 66706], ["2020-06", 66152], ["2020-07", 67562], ["2020-08", 69405], ["2020-09", 72480], ["2020-10", 71654], ["2020-11", 68816], ["2020-12", 68122], ["2021-01", 68787], ["2021-02", 69669], ["2021-03", 69827], ["2021-04", 72543], ["2021-05", 75998], ["2021-06", 74888], ["2021-07", 74045], ["2021-08", 74173], ["2021-09", 71596], ["2021-10", 72558], ["2021-11", 69538], ["2021-12", 69737], ["2022-01", 68100], ["2022-02", 66305], ["2022-03", 66547], ["2022-04", 69235], ["2022-05", 73709], ["2022-06", 74110], ["2022-07", 73575], ["2022-08", 73736], ["2022-09", 74066], ["2022-10", 76270], ["2022-11", 78466], ["2022-12", 79623], ["2023-01", 79015], ["2023-02", 77947], ["2023-03", 78150], ["2023-04", 78594], ["2023-05", 79038], ["2023-06", 78099], ["2023-07", 76475], ["2023-08", 80618], ["2023-09", 80625], ["2023-10", 80351], ["2023-11", 81516], ["2023-12", 81794], ["2024-01", 81224], ["2024-02", 77353], ["2024-03", 77977], ["2024-04", 80672], ["2024-05", 83199], ["2024-06", 81819], ["2024-07", 86903], ["2024-08", 83819], ["2024-09", 85184], ["2024-10", 84993], ["2024-11", 87511], ["2024-12", 88762], ["2025-01", 90589], ["2025-02", 93507], ["2025-03", 93916], ["2025-04", 93912], ["2025-05", 95626], ["2025-06", 91916], ["2025-07", 93081], ["2025-08", 95519], ["2025-09", 97186], ["2025-10", 98465], ["2025-11", 95749], ["2025-12", 98927], ["2026-01", 100579], ["2026-02", 104425], ["2026-03", 100611], ["2026-04", 101332], ["2026-05", 102237], ["2026-06", 101036], ["2026-07", 101848], ["2026-08", 102562]], "yearly": [[2010, -895], [2011, -1666], [2012, -2534], [2013, -4161], [2014, -3319], [2015, -3725], [2016, -2457], [2017, -2238], [2018, -3792], [2019, 653], [2020, 4837], [2021, 1636], [2022, 519], [2023, -1191], [2024, -1721], [2025, -7604], [2026, -6030]], "resolution": [[2010, 1.0, 1.75], [2011, 1.25, 2.25], [2012, 1.25, 2.0], [2013, 1.0, 2.0], [2014, 1.5, 2.5], [2015, 2.0, 3.5], [2016, 1.75, 3.0], [2017, 1.5, 2.75], [2018, 4.0, 6.25], [2019, 3.0, 6.0], [2020, 7.5, 12.75], [2021, 7.0, 12.75], [2022, 11.75, 21.0], [2023, 8.0, 14.5], [2024, 9.5, 17.0], [2025, 11.75, 21.25], [2026, 15.25, 31.75]], "sweep": [["atr", "0.5", 5.7, -81.2, 74.0, 33.4, 0.84, -40645, 47222, 3529], ["atr", "1", 11.5, -67.4, -430.2, 34.5, 0.9, -34079, 45847, 3529], ["atr", "1.5", 17.2, -48.7, -398.1, 34.8, 0.94, -27225, 43100, 3529], ["atr", "2", 23.0, -6.8, -195.2, 35.6, 0.99, -23573, 39943, 3529], ["atr", "3", 34.2, 78.8, 23.2, 36.1, 1.09, -18836, 34807, 3525], ["atr", "4", 45.2, 104.3, 85.6, 36.7, 1.11, -19522, 31341, 3520], ["pct", "0.0025", 26.4, 73.9, -74.9, 37.1, 1.08, -16321, 38443, 3529], ["pct", "0.005", 52.8, 78.5, 72.1, 39.9, 1.08, -14190, 28145, 3529], ["pct", "0.0075", 79.2, 85.4, 79.8, 44.1, 1.09, -15960, 20651, 3529], ["pct", "0.01", 96.3, 57.9, 53.9, 46.6, 1.08, -20590, 15612, 3344], ["fixed", "1", 250.0, 74.2, 74.2, 50.1, 1.16, -5862, 4729, 3529], ["fixed", "2", 125.0, 105.1, 98.0, 46.7, 1.14, -11130, 9458, 3529], ["fixed", "5", 50.0, 76.5, 6.6, 42.3, 1.07, -14613, 23644, 3529], ["fixed", "10", 25.0, 26.8, -260.7, 39.2, 1.02, -25528, 47289, 3529]], "ablation": [["atr", "1", "trailing stop", -33688, -67.4, 34.5, -34079], ["atr", "1", "fixed stop", 179253, 358.5, 12.0, -18864], ["atr", "1", "no stop (6h only)", 339059, 678.1, 51.0, -68799], ["pct", "0.005", "trailing stop", 39270, 78.5, 39.9, -14190], ["pct", "0.005", "fixed stop", 70612, 141.2, 40.7, -27410], ["pct", "0.005", "no stop (6h only)", 113507, 227.0, 51.0, -30945], ["fixed", "1", "trailing stop", 37092, 74.2, 50.1, -5862], ["fixed", "1", "fixed stop", 41663, 83.3, 50.7, -6120], ["fixed", "1", "no stop (6h only)", 38791, 77.6, 51.0, -7041], ["atr", "3", "trailing stop", 39396, 78.8, 36.1, -18836], ["atr", "3", "fixed stop", 107171, 214.3, 28.2, -26943], ["atr", "3", "no stop (6h only)", 157704, 315.4, 51.0, -37247], ["atr", "4", "trailing stop", 52169, 104.3, 36.7, -19522], ["atr", "4", "fixed stop", 98302, 196.6, 35.0, -30209], ["atr", "4", "no stop (6h only)", 121855, 243.7, 50.9, -30131]], "propfirm": [["headline ATR k=1", "apex_50k", 3528, 388, 3119, 21, 11.1, 27.0, 93.0], ["headline ATR k=1", "topstep_50k", 3528, 367, 3157, 4, 10.4, 26.0, 76.0], ["best sweep fixed=2", "apex_50k", 3528, 1554, 1370, 604, 53.1, 65.0, 32.0], ["best sweep fixed=2", "topstep_50k", 3528, 1343, 1703, 482, 44.1, 54.0, 33.0]], "head": {"trades": 3529.0, "skipped": 0.0, "net_pnl": -33687.76, "fees": 45846.76, "gross_pnl": 12159.0, "total_return_pct": -67.376, "ann_return_pct": -4.153, "years": 16.225, "win_rate_pct": 34.514, "avg_win": 239.043, "avg_loss": -140.564, "payoff": 1.701, "profit_factor": 0.896, "expectancy": -9.546, "max_dd": -34078.76, "max_dd_pct": -68.158, "sharpe": -0.512, "sortino": -1.157, "mar": 0.061, "avg_contracts": 9.695, "avg_stop_pts": 11.475, "avg_risk_dollars": 205.411, "avg_bars_held": 2.86, "long_pnl": -13177.66, "short_pnl": -20510.1, "long_n": 1815.0, "short_n": 1714.0, "exit_stop": 3529.0}, "best": {"trades": 3529.0, "skipped": 0.0, "net_pnl": 52562.28, "fees": 9457.72, "gross_pnl": 62020.0, "total_return_pct": 105.125, "ann_return_pct": 6.479, "years": 16.225, "win_rate_pct": 46.67, "avg_win": 254.678, "avg_loss": -194.948, "payoff": 1.306, "profit_factor": 1.143, "expectancy": 14.894, "max_dd": -11129.96, "max_dd_pct": -22.26, "sharpe": 0.723, "sortino": 1.511, "mar": 0.291, "avg_contracts": 2.0, "avg_stop_pts": 125.0, "avg_risk_dollars": 500.0, "avg_bars_held": 277.049, "long_pnl": 32234.8, "short_pnl": 20327.48, "long_n": 1815.0, "short_n": 1714.0, "exit_time": 2364.0, "exit_stop": 1132.0, "exit_session_end": 33.0}}</script>
+<script>
+const D = JSON.parse(document.getElementById('payload').textContent);
+const css = v => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmt0 = n => (n<0?'−':'')+'$'+Math.abs(Math.round(n)).toLocaleString();
+const fmtK = n => (n<0?'−':'+')+'$'+Math.abs(n/1000).toFixed(1)+'k';
+const SVGNS='http://www.w3.org/2000/svg';
+function el(t,a){const e=document.createElementNS(SVGNS,t);for(const k in a)e.setAttribute(k,a[k]);return e;}
+
+function frame(host,w,h,m){
+  host.querySelectorAll('svg').forEach(s=>s.remove());
+  const svg=el('svg',{viewBox:`0 0 ${w} ${h}`,role:'img'});
+  host.appendChild(svg);
+  return {svg,iw:w-m.l-m.r,ih:h-m.t-m.b,m};
+}
+function yaxis(g,svg,min,max,fmt,ticks=5){
+  for(let i=0;i<=ticks;i++){
+    const v=min+(max-min)*i/ticks, y=g.m.t+g.ih-(v-min)/(max-min)*g.ih;
+    svg.appendChild(el('line',{x1:g.m.l,x2:g.m.l+g.iw,y1:y,y2:y,
+      stroke:v===0?css('--rule-2'):css('--rule'),'stroke-width':v===0?1.2:1}));
+    const t=el('text',{x:g.m.l-8,y:y+4,'text-anchor':'end','font-size':10,
+      fill:css('--ink-3'),'font-family':'var(--mono)'});
+    t.textContent=fmt(v); svg.appendChild(t);
+  }
+}
+function tipOn(host,tip,html,ev){
+  tip.innerHTML=html; tip.style.opacity=1;
+  const r=host.getBoundingClientRect();
+  let x=ev.clientX-r.left+12, y=ev.clientY-r.top-10;
+  if(x+tip.offsetWidth>r.width) x=ev.clientX-r.left-tip.offsetWidth-12;
+  tip.style.left=x+'px'; tip.style.top=y+'px';
+}
+
+/* ---- resolution: grouped bars on a log scale ----
+   Log is the right scale for a constant-ratio claim: a fixed ratio renders as a
+   fixed vertical gap, so "the gap never changes" is read directly off the chart.
+   On a linear scale 2026's 31.75 points would swamp 2010's 1.00 and hide it. */
+function drawRes(){
+  const host=document.getElementById('c-res'),tip=document.getElementById('t-res');
+  const W=940,H=312,m={t:16,r:14,b:48,l:52};
+  const g=frame(host,W,H,m),svg=g.svg,d=D.resolution;
+  const lo=Math.log10(0.7), hi=Math.log10(50);
+  const Y=v=>m.t+g.ih-(Math.log10(v)-lo)/(hi-lo)*g.ih;
+  [1,2,5,10,20,50].forEach(v=>{
+    const y=Y(v);
+    svg.appendChild(el('line',{x1:m.l,x2:m.l+g.iw,y1:y,y2:y,stroke:css('--rule')}));
+    const t=el('text',{x:m.l-8,y:y+4,'text-anchor':'end','font-size':10,
+      fill:css('--ink-3'),'font-family':'var(--mono)'}); t.textContent=v; svg.appendChild(t);
+  });
+  const bw=g.iw/d.length, in_=bw*0.62, half=in_/2, base=m.t+g.ih;
+  d.forEach((r,i)=>{
+    const cx=m.l+bw*i+bw/2;
+    [[r[1],css('--orange'),-half],[r[2],css('--blue'),0]].forEach(([v,c,off])=>{
+      const y=Y(v);
+      svg.appendChild(el('rect',{x:cx+off+1,y:y,width:half-2,
+        height:Math.max(base-y,1),fill:c,rx:2}));
+    });
+    const t=el('text',{x:cx,y:H-m.b+16,'text-anchor':'middle','font-size':9.5,
+      fill:css('--ink-3'),'font-family':'var(--mono)'});
+    t.textContent="'"+String(r[0]).slice(2); svg.appendChild(t);
+    const rt=el('text',{x:cx,y:Y(r[2])-6,'text-anchor':'middle','font-size':9,
+      fill:css('--ink-3'),'font-family':'var(--mono)'});
+    rt.textContent=(r[2]/r[1]).toFixed(1)+'\u00d7'; svg.appendChild(rt);
+    const hit=el('rect',{x:m.l+bw*i,y:m.t,width:bw,height:g.ih,fill:'transparent'});
+    hit.addEventListener('mousemove',e=>tipOn(host,tip,
+      `<b>${r[0]}</b><br>K\u7ebf\u6ce2\u5e45 ${r[1]} \u70b9<br>\u6b62\u635f\u8ddd\u79bb ${r[2]} \u70b9<br>\u6bd4\u503c <b>${(r[2]/r[1]).toFixed(1)}\u00d7</b>`,e));
+    hit.addEventListener('mouseleave',()=>tip.style.opacity=0);
+    svg.appendChild(hit);
+  });
+  const ax=el('text',{x:m.l+g.iw/2,y:H-6,'text-anchor':'middle','font-size':10.5,
+    fill:css('--ink-3')});
+  ax.textContent='\u7eb5\u8f74\u4e3a\u5bf9\u6570\u523b\u5ea6\uff08\u70b9\uff09\u2014\u2014\u4e24\u6761\u67f1\u7684\u9ad8\u5dee\u6052\u5b9a\uff0c\u5c31\u662f\u6bd4\u503c\u6052\u5b9a';
+  svg.appendChild(ax);
+}
+
+/* ---- divergence vs stop width (log scatter) ---- */
+function drawDiv(){
+  const host=document.getElementById('c-div'),tip=document.getElementById('t-div');
+  const W=940,H=290,m={t:16,r:16,b:40,l:56};
+  const g=frame(host,W,H,m),svg=g.svg;
+  const pts=D.sweep.map(r=>({v:r[0],p:r[1],stop:r[2],div:Math.abs(r[4]-r[3])}));
+  const xs=pts.map(p=>Math.log10(p.stop)), ys=pts.map(p=>Math.log10(Math.max(p.div,0.5)));
+  const x0=Math.min(...xs)-0.12,x1=Math.max(...xs)+0.12;
+  const y0=Math.min(...ys)-0.2,y1=Math.max(...ys)+0.2;
+  for(let e=-1;e<=3;e++){ if(e<y0||e>y1) continue;
+    const y=m.t+g.ih-(e-y0)/(y1-y0)*g.ih;
+    svg.appendChild(el('line',{x1:m.l,x2:m.l+g.iw,y1:y,y2:y,stroke:css('--rule')}));
+    const t=el('text',{x:m.l-8,y:y+4,'text-anchor':'end','font-size':10,fill:css('--ink-3'),
+      'font-family':'var(--mono)'}); t.textContent=Math.pow(10,e)+'pp'; svg.appendChild(t);
+  }
+  const yT=m.t+g.ih-(Math.log10(20)-y0)/(y1-y0)*g.ih;
+  svg.appendChild(el('line',{x1:m.l,x2:m.l+g.iw,y1:yT,y2:yT,stroke:css('--green'),
+    'stroke-width':1.4,'stroke-dasharray':'5 4'}));
+  const lt=el('text',{x:m.l+g.iw-4,y:yT-7,'text-anchor':'end','font-size':10.5,
+    fill:css('--green'),'font-family':'var(--mono)'});
+  lt.textContent='20pp — 以下视为可信'; svg.appendChild(lt);
+  [10,25,50,100,250].forEach(v=>{
+    const lx=Math.log10(v); if(lx<x0||lx>x1) return;
+    const x=m.l+(lx-x0)/(x1-x0)*g.iw;
+    const t=el('text',{x:x,y:H-m.b+18,'text-anchor':'middle','font-size':10,
+      fill:css('--ink-3'),'font-family':'var(--mono)'}); t.textContent=v+'点'; svg.appendChild(t);
+  });
+  const ax=el('text',{x:m.l+g.iw/2,y:H-4,'text-anchor':'middle','font-size':10.5,
+    fill:css('--ink-3')}); ax.textContent='平均止损距离（点，对数刻度）'; svg.appendChild(ax);
+  pts.forEach(p=>{
+    const x=m.l+(Math.log10(p.stop)-x0)/(x1-x0)*g.iw;
+    const y=m.t+g.ih-(Math.log10(Math.max(p.div,0.5))-y0)/(y1-y0)*g.ih;
+    const ok=p.div<20;
+    const c=el('circle',{cx:x,cy:y,r:6,fill:ok?css('--blue'):css('--red'),
+      stroke:css('--surface'),'stroke-width':2});
+    c.addEventListener('mousemove',e=>tipOn(host,tip,
+      `<b>${p.v} ${p.p}</b><br>止损 ${p.stop} 点<br>路径分歧 <b>${p.div.toFixed(1)}pp</b>`,e));
+    c.addEventListener('mouseleave',()=>tip.style.opacity=0);
+    svg.appendChild(c);
+  });
+}
+
+/* ---- ablation grouped bars ---- */
+function drawAbl(){
+  const host=document.getElementById('c-abl'),tip=document.getElementById('t-abl');
+  const keys=[['atr','1'],['atr','3'],['atr','4'],['pct','0.005'],['fixed','1']];
+  const rules=['trailing stop','fixed stop','no stop (6h only)'];
+  const names={'trailing stop':'移动止损','fixed stop':'固定止损','no stop (6h only)':'不止损'};
+  const cols=[css('--blue'),css('--orange'),css('--ink-3')];
+  const W=940,H=310,m={t:16,r:14,b:44,l:60};
+  const g=frame(host,W,H,m),svg=g.svg;
+  const rows=keys.map(([v,p])=>rules.map(r=>{
+    const f=D.ablation.find(a=>a[0]===v&&a[1]===p&&a[2]===r); return f?f[3]:0;}));
+  const flat=rows.flat(); const max=Math.max(...flat)*1.1, min=Math.min(0,Math.min(...flat)*1.15);
+  yaxis(g,svg,min,max,v=>(v/1000).toFixed(0)+'k');
+  const gw=g.iw/keys.length, bw=gw*0.24;
+  keys.forEach(([v,p],i)=>{
+    rows[i].forEach((val,j)=>{
+      const x=m.l+gw*i+gw*0.09+j*bw;
+      const zero=m.t+g.ih-(0-min)/(max-min)*g.ih;
+      const y=m.t+g.ih-(val-min)/(max-min)*g.ih;
+      const r=el('rect',{x:x+1.5,y:Math.min(y,zero),width:bw-3,
+        height:Math.max(Math.abs(y-zero),1),fill:cols[j],rx:2});
+      r.addEventListener('mousemove',e=>tipOn(host,tip,
+        `<b>${v} ${p}</b> · ${names[rules[j]]}<br>净利 <b>${fmt0(val)}</b>`,e));
+      r.addEventListener('mouseleave',()=>tip.style.opacity=0);
+      svg.appendChild(r);
+    });
+    const t=el('text',{x:m.l+gw*i+gw/2,y:H-m.b+18,'text-anchor':'middle','font-size':11,
+      fill:css('--ink-2'),'font-family':'var(--mono)'});
+    t.textContent=(v==='pct'?'pct 0.5%':v+' '+p); svg.appendChild(t);
+  });
+  const ax=el('text',{x:m.l+g.iw/2,y:H-6,'text-anchor':'middle','font-size':10.5,
+    fill:css('--ink-3')}); ax.textContent='每组内：移动止损始终垫底'; svg.appendChild(ax);
+}
+
+/* ---- equity curves ---- */
+function drawEq(){
+  const host=document.getElementById('c-eq'),tip=document.getElementById('t-eq');
+  const W=940,H=330,m={t:16,r:16,b:34,l:64};
+  const g=frame(host,W,H,m),svg=g.svg;
+  const A=D.eq_head,B=D.eq_best,n=A.length;
+  const all=[...A.map(r=>r[1]),...B.map(r=>r[1]),50000];
+  const min=Math.min(...all)*0.98,max=Math.max(...all)*1.02;
+  yaxis(g,svg,min,max,v=>'$'+(v/1000).toFixed(0)+'k');
+  const zy=m.t+g.ih-(50000-min)/(max-min)*g.ih;
+  svg.appendChild(el('line',{x1:m.l,x2:m.l+g.iw,y1:zy,y2:zy,stroke:css('--ink-3'),
+    'stroke-width':1.2,'stroke-dasharray':'5 4'}));
+  const X=i=>m.l+i/(n-1)*g.iw, Y=v=>m.t+g.ih-(v-min)/(max-min)*g.ih;
+  [[B,css('--orange')],[A,css('--blue')]].forEach(([S,c])=>{
+    svg.appendChild(el('path',{d:S.map((r,i)=>(i?'L':'M')+X(i)+' '+Y(r[1])).join(' '),
+      fill:'none',stroke:c,'stroke-width':2,'stroke-linejoin':'round'}));
+  });
+  A.forEach((r,i)=>{ if(i%24) return;
+    const t=el('text',{x:X(i),y:H-m.b+16,'text-anchor':'middle','font-size':10,
+      fill:css('--ink-3'),'font-family':'var(--mono)'}); t.textContent=r[0].slice(0,4);
+    svg.appendChild(t); });
+  const cross=el('line',{y1:m.t,y2:m.t+g.ih,stroke:css('--rule-2'),'stroke-width':1,opacity:0});
+  svg.appendChild(cross);
+  const dots=[css('--blue'),css('--orange')].map(c=>{
+    const d=el('circle',{r:4.5,fill:c,stroke:css('--surface'),'stroke-width':2,opacity:0});
+    svg.appendChild(d); return d;});
+  const hit=el('rect',{x:m.l,y:m.t,width:g.iw,height:g.ih,fill:'transparent'});
+  hit.addEventListener('mousemove',e=>{
+    const r=host.getBoundingClientRect();
+    const i=Math.max(0,Math.min(n-1,Math.round((e.clientX-r.left)/r.width*W-m.l)/g.iw*(n-1)));
+    const k=Math.round(i);
+    cross.setAttribute('x1',X(k)); cross.setAttribute('x2',X(k)); cross.setAttribute('opacity',1);
+    dots[0].setAttribute('cx',X(k)); dots[0].setAttribute('cy',Y(A[k][1])); dots[0].setAttribute('opacity',1);
+    dots[1].setAttribute('cx',X(k)); dots[1].setAttribute('cy',Y(B[k][1])); dots[1].setAttribute('opacity',1);
+    tipOn(host,tip,`<b>${A[k][0]}</b><br>ATR k=1 &nbsp;${fmt0(A[k][1])}<br>fixed N=2 &nbsp;${fmt0(B[k][1])}`,e);
+  });
+  hit.addEventListener('mouseleave',()=>{tip.style.opacity=0;cross.setAttribute('opacity',0);
+    dots.forEach(d=>d.setAttribute('opacity',0));});
+  svg.appendChild(hit);
+}
+
+/* ---- yearly diverging bars ---- */
+function drawYr(){
+  const host=document.getElementById('c-yr'),tip=document.getElementById('t-yr');
+  const W=940,H=250,m={t:14,r:14,b:34,l:60};
+  const g=frame(host,W,H,m),svg=g.svg,d=D.yearly;
+  const vals=d.map(r=>r[1]);
+  const max=Math.max(...vals,0)*1.15,min=Math.min(...vals,0)*1.15;
+  yaxis(g,svg,min,max,v=>(v/1000).toFixed(0)+'k');
+  const bw=g.iw/d.length, zero=m.t+g.ih-(0-min)/(max-min)*g.ih;
+  d.forEach((r,i)=>{
+    const y=m.t+g.ih-(r[1]-min)/(max-min)*g.ih;
+    const rect=el('rect',{x:m.l+bw*i+bw*0.16,y:Math.min(y,zero),width:bw*0.68,
+      height:Math.max(Math.abs(y-zero),1),fill:r[1]<0?css('--red'):css('--blue'),rx:2});
+    rect.addEventListener('mousemove',e=>tipOn(host,tip,
+      `<b>${r[0]}</b><br>净利 <b>${fmt0(r[1])}</b><br>回报 ${(r[1]/500).toFixed(1)}%`,e));
+    rect.addEventListener('mouseleave',()=>tip.style.opacity=0);
+    svg.appendChild(rect);
+    const t=el('text',{x:m.l+bw*i+bw/2,y:H-m.b+16,'text-anchor':'middle','font-size':9.5,
+      fill:css('--ink-3'),'font-family':'var(--mono)'});
+    t.textContent="'"+String(r[0]).slice(2); svg.appendChild(t);
+  });
+}
+
+/* ---- tables ---- */
+function fillSweep(){
+  const tb=document.querySelector('#t-sweep tbody');
+  D.sweep.forEach(r=>{
+    const [v,p,stop,a,f,win,pf,dd,fees,n]=r;
+    const div=Math.abs(f-a), ok=div<20;
+    const tr=document.createElement('tr');
+    tr.className = ok?'hi':'dim';
+    tr.innerHTML=`<td class="l">${v}</td><td class="l n">${p}</td>
+      <td class="n">${stop.toFixed(1)}</td>
+      <td class="n ${a<0?'neg':'pos'}">${a>0?'+':'−'}${Math.abs(a).toFixed(1)}%</td>
+      <td class="n ${f<0?'neg':''}">${f>0?'+':'−'}${Math.abs(f).toFixed(1)}%</td>
+      <td class="n">${ok?`<span class="pill ok">${div.toFixed(1)}pp</span>`
+                       :`<span class="pill bad">${div.toFixed(0)}pp</span>`}</td>
+      <td class="n">${win.toFixed(1)}%</td><td class="n">${pf.toFixed(2)}</td>
+      <td class="n">${fmt0(dd)}</td><td class="n">${fmt0(fees)}</td>`;
+    tb.appendChild(tr);
+  });
+}
+function fillProp(){
+  const tb=document.querySelector('#t-prop tbody');
+  const nm={apex_50k:'Apex $50K',topstep_50k:'TopStep $50K'};
+  D.propfirm.forEach(r=>{
+    const [cfg,firm,acc,pass,blown,und,rate,dp,db]=r;
+    const label=cfg.startsWith('headline')?'ATR k=1（你的设定）':'fixed N=2（扫描最佳）';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td class="l">${label}</td><td class="l">${nm[firm]||firm}</td>
+      <td class="n">${acc.toLocaleString()}</td>
+      <td class="n">${pass.toLocaleString()}</td>
+      <td class="n neg">${blown.toLocaleString()}</td>
+      <td class="n">${und.toLocaleString()}</td>
+      <td class="n"><span class="pill ${rate<25?'bad':'ok'}">${rate.toFixed(1)}%</span></td>
+      <td class="n">${isFinite(dp)?dp.toFixed(0):'—'}</td>
+      <td class="n">${isFinite(db)?db.toFixed(0):'—'}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+function drawAll(){drawRes();drawDiv();drawAbl();drawEq();drawYr();}
+fillSweep();fillProp();drawAll();
+let rt; addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(drawAll,150);});
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change',drawAll);
+new MutationObserver(drawAll).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']});
+</script>

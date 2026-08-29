@@ -15,10 +15,16 @@ TRADING_DAYS = 252
 
 
 def daily_pnl(trades: pd.DataFrame) -> pd.Series:
+    """Realised P&L per session, indexed by date.
+
+    session_date is coerced because a trade log round-tripped through CSV comes
+    back as strings, and the date arithmetic downstream needs real dates.
+    """
     done = trades[trades["skipped"].isna()]
     if done.empty:
         return pd.Series(dtype="float64")
-    return done.groupby("session_date")["pnl"].sum().sort_index()
+    keyed = pd.to_datetime(done["session_date"]).dt.date
+    return done.groupby(keyed)["pnl"].sum().sort_index()
 
 
 def equity_curve(trades: pd.DataFrame, initial: float) -> pd.Series:
@@ -41,7 +47,7 @@ def summarise(trades: pd.DataFrame, initial: float) -> dict:
     daily = daily_pnl(trades)
     eq = initial + daily.cumsum()
     dd = eq - eq.cummax()
-    days = max((daily.index[-1] - daily.index[0]).days, 1)
+    days = max((pd.Timestamp(daily.index[-1]) - pd.Timestamp(daily.index[0])).days, 1)
     years = days / 365.25
     rets = daily / initial
     downside = rets[rets < 0]

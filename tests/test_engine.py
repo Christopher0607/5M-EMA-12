@@ -258,3 +258,21 @@ def test_nyse_filter_flags_half_days():
     kept = restrict_to_nyse(sig).set_index("session_date")
     assert bool(kept.loc[pd.Timestamp("2024-07-03").date(), "early_close"]) is True
     assert bool(kept.loc[pd.Timestamp("2024-07-05").date(), "early_close"]) is False
+
+
+def test_metrics_survive_a_csv_round_trip(tmp_path):
+    """A saved trade log reloads with string dates; the metrics must still work."""
+    from src.metrics import summarise
+    trades = pd.DataFrame({
+        "session_date": [pd.Timestamp("2024-01-02").date(), pd.Timestamp("2024-06-03").date()],
+        "pnl": [100.0, -50.0], "fees": [2.0, 2.0], "contracts": [1, 1],
+        "direction": ["long", "short"], "exit_reason": ["stop", "time"],
+        "stop_distance_pts": [10.0, 10.0], "risk_dollars": [20.0, 20.0],
+        "bars_held": [5, 360], "skipped": [None, None],
+    })
+    path = tmp_path / "t.csv"
+    trades.to_csv(path, index=False)
+    direct = summarise(trades, 50000.0)
+    reloaded = summarise(pd.read_csv(path), 50000.0)
+    assert reloaded["net_pnl"] == pytest.approx(direct["net_pnl"])
+    assert reloaded["years"] == pytest.approx(direct["years"])

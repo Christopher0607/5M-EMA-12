@@ -104,3 +104,115 @@ the stop level, since the open preceded the ratchet.
 
 **Costs.** $1.34 round-turn per micro, plus 1 tick of slippage on entry and exit.
 Both are swept.
+
+---
+
+# Results
+
+**2010-06-07 → 2026-08-28 · 3,529 trades · 4.81M 1-minute bars · $50,000 account**
+
+## Headline — the strategy as specified
+
+ATR-normalised stop, k=1.0, adverse-first path:
+
+| | |
+|---|---|
+| **Total return** | **−67.4%** (−$33,688) |
+| Annualised | −4.2% |
+| Win rate | 34.5% |
+| Profit factor | 0.90 |
+| Max drawdown | −$34,079 |
+| Sharpe | −0.51 |
+| Exits via stop | **100%** — the 6-hour cap never once bound |
+
+The P&L bridge is the whole story:
+
+| | |
+|---|---|
+| Gross P&L | **+$12,159** |
+| Commissions (3,529 trades × ~9.7 micros) | **−$45,847** |
+| **Net** | **−$33,688** |
+
+Fees are **3.8× gross profit**. A tighter stop forces a larger position to keep risk at 1%,
+and the position size is what sets the commission bill. The losses are mostly a transaction-cost
+problem, not a signal problem.
+
+## The result is resolution-limited — read this before quoting the number
+
+1-minute OHLC cannot say whether a bar's high or low came first, and for a *trailing* stop that
+ordering decides the outcome. The two extreme path assumptions give **−67.4%** and **−430.2%** —
+a 363 percentage-point spread.
+
+The reason is structural, not a one-off: **the ATR k=1 stop is only 1.6–2.1× the median
+1-minute bar range in every one of the 17 years.** The stop sits inside a single bar's noise.
+
+| Stop width | Path spread | Trustworthy? |
+|---|---|---|
+| 250 pts (fixed N=1) | 0.0 pp | yes |
+| 53–96 pts (pct 0.5–1%) | 4–6 pp | yes |
+| 45 pts (ATR k=4) | 19 pp | yes |
+| 23–34 pts (ATR k=2–3) | 56–188 pp | no |
+| 11–17 pts (ATR k=1–1.5) | 349–363 pp | no |
+
+Direction is robust for k ≥ 1 (both assumptions lose money); **magnitude is not**. At k=0.5 the
+two assumptions disagree even in sign. Resolving the tight-stop rows needs 1-second data
+(~$468 for the full history, or ~$35–40 for recent years, RTH only).
+
+## Does the stop hold the drawdown together?
+
+Yes — and that is exactly the problem. Same signals, three exit rules:
+
+| Config | Trailing | Fixed stop | No stop (6h) |
+|---|---|---|---|
+| ATR k=1 | **−$33,688** | +$179,253 | +$339,059 |
+| ATR k=4 | **+$52,169** | +$98,302 | +$121,855 |
+| pct 0.5% | **+$39,270** | +$70,612 | +$113,507 |
+| fixed N=2 | **+$52,562** | +$71,919 | +$77,582 |
+
+**Trailing < fixed < no-stop in 4 configs × 2 path assumptions — 8 of 8, no exceptions.**
+
+The trailing stop does cut drawdown roughly in half (ATR k=1: −$34,079 vs −$68,799 unstopped;
+pct 0.5%: −$14,190 vs −$30,945). The instinct behind "the stop held the drawdown together" is
+correct. But it buys that by cutting winners that were still running, and it gives up more than
+it saves in every configuration tested.
+
+Note that the fixed-stop and no-stop columns are **identical under both path assumptions** —
+neither ratchets inside a bar, so neither has any path ambiguity. Only the trailing stop is
+path-sensitive, which means this ranking is clean and unaffected by the resolution problem above.
+
+## Prop-firm evaluation
+
+A fresh evaluation account is started on **every session** and run to pass, bust, or a 250-session cap.
+
+| Config | Firm | Accounts | Passed | Blown | Pass rate |
+|---|---|---|---|---|---|
+| ATR k=1 (as specified) | Apex $50K | 3,528 | 388 | **3,119** | **11.1%** |
+| ATR k=1 (as specified) | TopStep $50K | 3,528 | 367 | 3,157 | 10.4% |
+| fixed N=2 (best in sweep) | Apex $50K | 3,528 | 1,554 | 1,370 | 53.1% |
+| fixed N=2 (best in sweep) | TopStep $50K | 3,528 | 1,343 | 1,703 | 44.1% |
+
+As specified, the strategy busts **88% of evaluation accounts**, median 93 sessions to bust.
+
+## Year by year
+
+2010–2018 lost money every single year; 2019–2022 turned positive; 2023–2026 turned negative
+again, with 2025 (−15.2%) and 2026-to-date (−12.1%) the worst of the whole period. There is no
+stable edge.
+
+## What I would do next
+
+1. **Drop the trailing stop.** 8-of-8 evidence says it is net negative. A fixed stop controls
+   drawdown better *and* carries no path ambiguity.
+2. **Position size is the lever, not the stop parameter.** Same signals at 1 micro (fixed N=1)
+   pay $4,729 in fees and net +$37,092; at ~9.7 micros they pay $45,847 and net −$33,688.
+3. **Buy 1-second data** if the tight-stop rows matter — that is the only way to resolve them.
+4. **The signal deserves separate study.** Stripped of the stop, the plain 6-hour hold is
+   solidly positive, but its −$68,799 drawdown would bust any prop account. The real question
+   is how to control drawdown without killing the edge — not how to tune a trailing stop.
+
+## Caveats
+
+Single market, single session, no regime filter. Sweeps are sensitivity analysis, not
+optimisation — the headline is the a-priori default, because quoting the best cell of a sweep
+over one dataset is how backtests get overfitted. Commissions and slippage are modelled but a
+real fill at the open in a fast tape can be worse. Past results do not predict future returns.
