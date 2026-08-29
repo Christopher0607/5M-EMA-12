@@ -90,6 +90,12 @@ def run_funded(days: pd.DataFrame, rules: dict, policy: dict, monthly_fee: float
     intraday = rules.get("trail_basis", "intraday") == "intraday"
     lock_at = (balance + (100.0 if intraday else 0.0)
                if rules.get("lock_at_initial") else np.inf)
+    # Lucid converts the trailing threshold to a STATIC floor at the starting
+    # balance once you are funded - it stops following equity upward entirely.
+    # That is the single friendliest rule in this comparison and it changes the
+    # withdrawal calculus: money taken out no longer drags a ratchet down onto you.
+    static_floor = bool(rules.get("static_floor", False))
+    dll_soft = bool(rules.get("daily_loss_soft", False))
     safety = float(rules["safety_net"])
     min_days = int(rules["min_trading_days"])
     min_day = float(rules["min_day_profit"])
@@ -107,6 +113,10 @@ def run_funded(days: pd.DataFrame, rules: dict, policy: dict, monthly_fee: float
     peak = balance
     qualifying = 0
     profit_days: list[float] = []      # winning days since the last payout
+    lifetime_days: list[float] = []    # every winning day, for lifetime-basis rules
+    # TPT measures its consistency rule against *lifetime* profit, so a payout
+    # does not reset it; Apex and Lucid measure it per payout cycle.
+    lifetime_basis = bool(rules.get("consistency_lifetime", False))
     payouts: list[Payout] = []
     taken = 0.0
     fees = 0.0
@@ -122,11 +132,12 @@ def run_funded(days: pd.DataFrame, rules: dict, policy: dict, monthly_fee: float
 
         if day_low <= incoming:
             return _funded_result("blown", n, balance, payouts, fees, "trailing_drawdown")
-        if dll is not None and row.pnl <= -dll:
+        if dll is not None and row.pnl <= -dll and not dll_soft:
             return _funded_result("blown", n, day_close, payouts, fees, "daily_loss_limit")
 
-        peak = max(peak, balance + row.up if intraday else day_close)
-        threshold = max(threshold, min(peak - trail, lock_at))
+        if not static_floor:
+            peak = max(peak, balance + row.up if intraday else day_close)
+            threshold = max(threshold, min(peak - trail, lock_at))
         if day_close <= threshold:
             return _funded_result("blown", n, day_close, payouts, fees, "trailing_drawdown")
 
@@ -135,6 +146,7 @@ def run_funded(days: pd.DataFrame, rules: dict, policy: dict, monthly_fee: float
             qualifying += 1
         if row.pnl > 0:
             profit_days.append(row.pnl)
+            lifetime_days.append(row.pnl)
 
         # ---- payout attempt -------------------------------------------------
         if qualifying < min_days:
@@ -142,9 +154,10 @@ def run_funded(days: pd.DataFrame, rules: dict, policy: dict, monthly_fee: float
         excess = balance - safety
         if excess <= 0:
             continue
-        if consistency is not None and profit_days:
-            total = sum(profit_days)
-            if total > 0 and max(profit_days) / total > float(consistency):
+        if consistency is not None:
+            pool = lifetime_days if lifetime_basis else profit_days
+            total = sum(pool)
+            if pool and total > 0 and max(pool) / total > float(consistency):
                 continue        # one lumpy day blocks the payout until it dilutes
         gross = _payout_size(excess, policy)
         hit_cap = False

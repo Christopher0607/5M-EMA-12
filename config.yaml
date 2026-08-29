@@ -189,3 +189,112 @@ payout_paths:
 scaling:
   account_counts: [1, 2, 3, 5, 10]
   legacy_split_full_to: 10000.0   # only for pre-2026-01-12 traders; shared across accounts
+
+# ---------------------------------------------------------------------------
+# Four-firm comparison. Terms as published for 2026; every number is here so it
+# can be corrected without touching the simulator.
+#
+# The structural differences matter more than the numbers:
+#   Apex     - threshold trails the INTRADAY high, both phases. Hardest to hold.
+#   TopStep  - trails the CLOSING balance; hard daily loss limit kills the account.
+#   Lucid    - trails EOD in evaluation, then stops trailing once funded. Daily
+#              loss limit is a SOFT breach: it blocks trading for the rest of the
+#              day but does not bust you.
+#              AMBIGUITY: Lucid says the drawdown "converts to a static floor at
+#              the starting balance". That reads two ways - a floor pinned at
+#              balance-MLL (a permanent cushion) or one at the starting balance
+#              (no cushion). Modelled here the conservative way, as a threshold
+#              that trails up to the starting balance and then locks, which is
+#              the standard industry mechanic and never flatters Lucid. Flip
+#              static_floor to true to model the generous reading.
+#   TPT      - evaluation trails EOD with no daily limit, but the funded PRO
+#              account switches to INTRADAY trailing. The one firm that gets
+#              HARDER after you pass.
+#
+# TPT publishes only its endpoints (1 mini / 10 micros at $25K, 5 / 50 at $150K;
+# max drawdown $1,500 at $25K to $4,500 at $150K). The $50K and $100K rows below
+# are interpolated on that ladder and are marked as such.
+# ---------------------------------------------------------------------------
+firms:
+  apex:
+    label: "Apex"
+    split_full_to: 25000.0
+    split_after: 1.0
+    eval:   {trail_basis: intraday, lock_at_initial: true, static_floor_when_funded: false}
+    funded: {trail_basis: intraday, lock_at_initial: true, static_floor: false,
+             min_trading_days: 8, min_day_profit: 50.0, payout_cap: 2000.0,
+             capped_payouts: 3, consistency_max_day_share: 0.30,
+             safety_net_offset: 2600.0}
+    tiers:
+      50k:  {balance: 50000.0,  trailing_dd: 2500.0, profit_target: 3000.0,
+             daily_loss_limit: null, max_micros: 100}
+      100k: {balance: 100000.0, trailing_dd: 3000.0, profit_target: 6000.0,
+             daily_loss_limit: null, max_micros: 140}
+      150k: {balance: 150000.0, trailing_dd: 5000.0, profit_target: 9000.0,
+             daily_loss_limit: null, max_micros: 170}
+
+  topstep:
+    label: "TopStep"
+    split_full_to: 0.0
+    split_after: 0.9
+    eval:   {trail_basis: eod, lock_at_initial: true, consistency_max_day_vs_target: 0.50,
+             daily_loss_soft: false}
+    funded: {trail_basis: eod, lock_at_initial: true, static_floor: false,
+             min_trading_days: 5, min_day_profit: 150.0,
+             capped_payouts: null, consistency_max_day_share: null,
+             safety_net_offset: 0.0, daily_loss_soft: false}
+    tiers:
+      50k:  {balance: 50000.0,  trailing_dd: 2000.0, profit_target: 3000.0,
+             daily_loss_limit: 1000.0, max_micros: 50,  payout_cap: 2000.0}
+      100k: {balance: 100000.0, trailing_dd: 3000.0, profit_target: 6000.0,
+             daily_loss_limit: 2000.0, max_micros: 100, payout_cap: 3000.0}
+      150k: {balance: 150000.0, trailing_dd: 4500.0, profit_target: 9000.0,
+             daily_loss_limit: 3000.0, max_micros: 150, payout_cap: 5000.0}
+
+  lucid:
+    label: "Lucid (LucidPro)"
+    split_full_to: 0.0
+    split_after: 0.9              # 90/10
+    # LucidPro has no minimum trading days and no evaluation consistency rule,
+    # which is what makes a one-day pass possible.
+    eval:   {trail_basis: eod, lock_at_initial: true, daily_loss_soft: true}
+    funded: {trail_basis: eod, lock_at_initial: true, static_floor: false,
+             min_trading_days: 0, min_day_profit: 0.0,
+             payout_cap: null, capped_payouts: 0,
+             consistency_max_day_share: 0.40,   # 40% of profit in the payout cycle
+             safety_net_offset: 0.0, daily_loss_soft: true}
+    tiers:
+      50k:  {balance: 50000.0,  trailing_dd: 2000.0, profit_target: 3000.0,
+             daily_loss_limit: 1200.0, max_micros: 40}
+      100k: {balance: 100000.0, trailing_dd: 3000.0, profit_target: 6000.0,
+             daily_loss_limit: 1800.0, max_micros: 60}
+      150k: {balance: 150000.0, trailing_dd: 4500.0, profit_target: 9000.0,
+             daily_loss_limit: 2700.0, max_micros: 100}
+
+  tpt:
+    label: "Take Profit Trader (PRO)"
+    split_full_to: 0.0
+    split_after: 0.8              # 80/20 on PRO; PRO+ is 90/10 but invite-only
+    # The Test evaluation has no daily loss limit and trails EOD, but the funded
+    # PRO account switches to INTRADAY trailing - the one firm that gets harder
+    # after you pass.
+    eval:   {trail_basis: eod, lock_at_initial: true, min_days_to_pass: 5,
+             consistency_max_day_share: 0.50}
+    funded: {trail_basis: intraday, lock_at_initial: true, static_floor: false,
+             min_trading_days: 5, min_day_profit: 0.0,
+             payout_cap: null, capped_payouts: 0,
+             consistency_max_day_share: 0.50,   # no day > 50% of lifetime profit
+             safety_net_offset: 0.0}
+    tiers:
+      50k:  {balance: 50000.0,  trailing_dd: 2000.0, profit_target: 3000.0,
+             daily_loss_limit: null, max_micros: 20}   # interpolated
+      100k: {balance: 100000.0, trailing_dd: 3000.0, profit_target: 6000.0,
+             daily_loss_limit: null, max_micros: 40}   # interpolated
+      150k: {balance: 150000.0, trailing_dd: 4500.0, profit_target: 9000.0,
+             daily_loss_limit: null, max_micros: 50}
+
+firm_fees:      # promotional pricing, which is what most people actually pay
+  apex:    {evaluation: 35.0,  activation: 0.0, monthly_funded: 85.0}
+  topstep: {evaluation: 49.0,  activation: 0.0, monthly_funded: 49.0}
+  lucid:   {evaluation: 45.0,  activation: 0.0, monthly_funded: 0.0}
+  tpt:     {evaluation: 60.0,  activation: 0.0, monthly_funded: 0.0}

@@ -342,3 +342,78 @@ def test_legacy_split_threshold_does_not_multiply_across_accounts():
     one = scale_accounts(car, 1, legacy_split_full_to=10000.0, split_after=0.9)
     assert legacy["withdrawn"] < one["withdrawn"] * 5, "threshold must not multiply"
     assert legacy["withdrawn_gross"] == pytest.approx(one["withdrawn_gross"] * 5)
+
+
+# ------------------------------- Lucid / TPT: the three structural differences
+
+LUCID_F = {"balance": 50000.0, "trailing_dd": 2000.0, "trail_basis": "eod",
+           "lock_at_initial": True, "daily_loss_limit": 1200.0, "daily_loss_soft": True,
+           "static_floor": True, "min_trading_days": 0, "min_day_profit": 0.0,
+           "safety_net": 50000.0, "payout_cap": None, "capped_payouts": 0,
+           "consistency_max_day_share": 0.40, "split_full_to": 0.0, "split_after": 0.9}
+TPT_F = dict(LUCID_F, static_floor=False, trail_basis="intraday",
+             daily_loss_limit=None, daily_loss_soft=False,
+             consistency_max_day_share=0.50, consistency_lifetime=True,
+             min_trading_days=5, split_after=0.8)
+
+
+def test_static_floor_keeps_the_cushion_a_locking_threshold_gives_away():
+    """A static floor stays at balance-MLL; a locking one climbs to the balance.
+
+    Both stop following profits, so the difference only shows in the cushion:
+    after eight +$500 days the static floor is still 48,000 while the locking
+    threshold has ratcheted to 50,000. Giving back $5,000 separates them.
+    """
+    rows = win(8, 500.0) + [("give_back", -5000.0, 0.0, 5000.0)]
+    never = {"kind": "threshold", "value": 1e9}     # suppress payouts
+
+    static = run_funded(days(rows), LUCID_F, never, 0.0, 0)
+    assert static["outcome"] == "survived", "floor stays at 48,000, balance 49,000"
+
+    locking = run_funded(days(rows), dict(LUCID_F, static_floor=False), never, 0.0, 0)
+    assert locking["outcome"] == "blown", "threshold locked at 50,000, balance 49,000"
+
+
+def test_soft_daily_limit_blocks_the_day_but_keeps_the_account():
+    from src.propfirm import run_account
+    ev_soft = {"balance": 50000.0, "trailing_dd": 2000.0, "profit_target": 3000.0,
+               "trail_basis": "eod", "lock_at_initial": True,
+               "daily_loss_limit": 1200.0, "daily_loss_soft": True}
+    rows = [("hit_dll", -1300.0, 0.0, 1300.0)] + win(20, 400.0, "r")
+    assert run_account(days(rows), ev_soft, max_days=40)["outcome"] == "passed"
+
+    ev_hard = dict(ev_soft, daily_loss_soft=False)
+    r = run_account(days(rows), ev_hard, max_days=40)
+    assert r["outcome"] == "blown" and r["reason"] == "daily_loss_limit"
+
+
+def test_tpt_minimum_trading_days_delays_an_otherwise_instant_pass():
+    from src.propfirm import run_account
+    ev = {"balance": 50000.0, "trailing_dd": 2000.0, "profit_target": 3000.0,
+          "trail_basis": "eod", "lock_at_initial": True, "daily_loss_limit": None,
+          "min_days_to_pass": 5}
+    one_day = [("boom", 3500.0, 3500.0, 0.0)]
+    assert run_account(days(one_day), ev, max_days=10)["outcome"] != "passed"
+
+    no_min = dict(ev, min_days_to_pass=0)
+    assert run_account(days(one_day), no_min, max_days=10)["outcome"] == "passed"
+
+
+def test_lifetime_consistency_is_not_reset_by_taking_a_payout():
+    """TPT measures against lifetime profit, so a payout does not clear the record."""
+    rows = win(5, 400.0, "a") + [("big", 6000.0, 6000.0, 0.0)] + win(5, 400.0, "b")
+    cycle = run_funded(days(rows), dict(TPT_F, consistency_lifetime=False), ALL, 0.0, 0)
+    life = run_funded(days(rows), TPT_F, ALL, 0.0, 0)
+    assert len(life["payouts"]) <= len(cycle["payouts"]), \
+        "a lifetime basis can only be at least as restrictive as a per-cycle one"
+
+
+def test_lucid_ninety_ten_beats_tpt_eighty_twenty_on_the_same_gross():
+    lucid = run_funded(days(win(12, 500.0)), LUCID_F, ALL, 0.0, 0)
+    tpt = run_funded(days(win(12, 500.0)), dict(TPT_F, static_floor=True,
+                                                trail_basis="eod"), ALL, 0.0, 0)
+    if lucid["payouts"] and tpt["payouts"]:
+        lg = sum(p.gross for p in lucid["payouts"])
+        tg = sum(p.gross for p in tpt["payouts"])
+        if lg == pytest.approx(tg):
+            assert sum(p.net for p in lucid["payouts"]) > sum(p.net for p in tpt["payouts"])

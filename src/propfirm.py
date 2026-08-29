@@ -43,6 +43,12 @@ def run_account(days: pd.DataFrame, rules: dict, start_idx: int = 0,
     # held back by it, so it is enforced here rather than in the funded phase.
     consistency_vs_target = rules.get("consistency_max_day_vs_target")
     best_day = 0.0
+    # Lucid's daily loss limit is a *soft* breach: it stops you trading for the
+    # rest of the session but does not end the account. Treating it as a bust,
+    # the way TopStep's works, would badly understate Lucid.
+    dll_soft = bool(rules.get("daily_loss_soft", False))
+    min_days = int(rules.get("min_days_to_pass") or 0)
+    blocked_days = 0
     # Apex locks the threshold just above the start balance; TopStep locks at it.
     lock_at = balance + (100.0 if intraday else 0.0) if rules.get("lock_at_initial") else np.inf
 
@@ -64,8 +70,10 @@ def run_account(days: pd.DataFrame, rules: dict, start_idx: int = 0,
             return {"outcome": "blown", "days": n, "final": day_low,
                     "reason": "trailing_drawdown"}
         if dll is not None and row.pnl <= -dll:
-            return {"outcome": "blown", "days": n, "final": day_close,
-                    "reason": "daily_loss_limit"}
+            if not dll_soft:
+                return {"outcome": "blown", "days": n, "final": day_close,
+                        "reason": "daily_loss_limit"}
+            blocked_days += 1
 
         # Apex trails the intraday high; TopStep trails the closing balance.
         peak = max(peak, day_high if intraday else day_close)
@@ -77,7 +85,7 @@ def run_account(days: pd.DataFrame, rules: dict, start_idx: int = 0,
 
         equity = day_close
         best_day = max(best_day, row.pnl)
-        if equity >= balance + target:
+        if equity >= balance + target and n >= min_days:
             if (consistency_vs_target is not None
                     and best_day > float(consistency_vs_target) * target):
                 # Target reached but one day carried too much of it: keep
