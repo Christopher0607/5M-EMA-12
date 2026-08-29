@@ -417,3 +417,25 @@ def test_lucid_ninety_ten_beats_tpt_eighty_twenty_on_the_same_gross():
         tg = sum(p.gross for p in tpt["payouts"])
         if lg == pytest.approx(tg):
             assert sum(p.net for p in lucid["payouts"]) > sum(p.net for p in tpt["payouts"])
+
+
+def test_share_of_total_consistency_also_gates_the_evaluation():
+    """TPT writes its rule against profit so far, not against the target."""
+    from src.propfirm import run_account
+    ev = {"balance": 50000.0, "trailing_dd": 4000.0, "profit_target": 3000.0,
+          "trail_basis": "eod", "lock_at_initial": True, "daily_loss_limit": None,
+          "consistency_max_day_share": 0.50}
+    # One +$2,500 day plus +$600 spread: the big day is 81% of profit.
+    rows = [("big", 2500.0, 2500.0, 0.0)] + win(6, 100.0, "s")
+    assert run_account(days(rows), ev, max_days=30)["outcome"] != "passed"
+
+    no_rule = dict(ev, consistency_max_day_share=None)
+    assert run_account(days(rows), no_rule, max_days=30)["outcome"] == "passed"
+
+
+def test_funded_distribution_reports_a_spread_not_one_path():
+    from src.career import funded_distribution
+    rows = win(200, 300.0, "d")
+    fd = funded_distribution(days(rows), LUCID_F, ALL, 0.0, step=21, horizon=60)
+    assert len(fd) > 1
+    assert {"start_date", "payouts", "net", "survived", "days"} <= set(fd.columns)

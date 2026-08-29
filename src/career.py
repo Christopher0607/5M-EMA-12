@@ -312,3 +312,28 @@ def scale_accounts(car: Career, n: int, legacy_split_full_to: float = 0.0,
         "net_to_trader": net - fees,
         "capped_payouts": sum(1 for p in car.payouts if p.capped) * n,
     }
+
+
+def funded_distribution(days: pd.DataFrame, rules: dict, policy: dict,
+                        monthly_fee: float, step: int = 21,
+                        horizon: int = 504) -> pd.DataFrame:
+    """Fund an account on every `step`-th session and run it for `horizon` days.
+
+    Running a single funded account from the first day of history answers the
+    wrong question: it reports how the strategy did in 2010, not how a funded
+    account behaves. Restarting across the whole period separates the funded
+    phase's economics from the evaluation's difficulty and from the era the
+    account happened to start in.
+    """
+    rows = []
+    for i in range(0, max(len(days) - horizon, 1), step):
+        sub = days.iloc[i:i + horizon].reset_index(drop=True)
+        r = run_funded(sub, rules, policy, monthly_fee, 0)
+        rows.append({
+            "start_date": days.iloc[i]["session_date"],
+            "payouts": len(r["payouts"]),
+            "net": sum(p.net for p in r["payouts"]) - r["fees"],
+            "survived": r["outcome"] == "survived",
+            "days": r["days"],
+        })
+    return pd.DataFrame(rows)

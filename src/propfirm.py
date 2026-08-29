@@ -41,8 +41,13 @@ def run_account(days: pd.DataFrame, rules: dict, start_idx: int = 0,
     # withdrawing: the best day must stay at or below a share of the profit
     # target. A strategy with lumpy daily P&L can hit the target and still be
     # held back by it, so it is enforced here rather than in the funded phase.
+    # Two consistency forms, because firms write the rule differently:
+    #   vs_target - TopStep: best day <= 50% of the PROFIT TARGET (absolute)
+    #   vs_total  - TPT:     best day <= 50% of PROFIT SO FAR (relative)
     consistency_vs_target = rules.get("consistency_max_day_vs_target")
+    consistency_vs_total = rules.get("consistency_max_day_share")
     best_day = 0.0
+    won = 0.0
     # Lucid's daily loss limit is a *soft* breach: it stops you trading for the
     # rest of the session but does not end the account. Treating it as a bust,
     # the way TopStep's works, would badly understate Lucid.
@@ -85,11 +90,16 @@ def run_account(days: pd.DataFrame, rules: dict, start_idx: int = 0,
 
         equity = day_close
         best_day = max(best_day, row.pnl)
+        if row.pnl > 0:
+            won += row.pnl
         if equity >= balance + target and n >= min_days:
             if (consistency_vs_target is not None
                     and best_day > float(consistency_vs_target) * target):
                 # Target reached but one day carried too much of it: keep
                 # trading until the rest of the record dilutes that day.
+                continue
+            if (consistency_vs_total is not None and won > 0
+                    and best_day / won > float(consistency_vs_total)):
                 continue
             return {"outcome": "passed", "days": n, "final": equity,
                     "reason": "profit_target"}

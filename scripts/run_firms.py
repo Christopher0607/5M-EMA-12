@@ -14,7 +14,8 @@ import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.bars import build_signal_frame, restrict_to_nyse, signal_bars
-from src.career import risk_for, run_career, run_funded, summarise_career
+from src.career import (funded_distribution, risk_for, run_career,
+                        run_funded, summarise_career)
 from src.data import load_bars
 from src.metrics import summarise
 from src.propfirm import daily_frame, rolling_evaluation, summarise_evaluation
@@ -79,11 +80,15 @@ def main():
                 # sweep is 72 rolling evaluations, so the cost matters.
                 ev_stats = summarise_evaluation(rolling_evaluation(days, ev, step=5))
 
-                # funded phase in isolation: assume you are already funded, so
-                # the evaluation's difficulty does not mask the funded economics
-                fund = run_funded(days, fu, cfg["withdrawal_policies"]["immediate"],
-                                  0.0, 0)
-                fund_net = sum(p.net for p in fund["payouts"])
+                # Funded phase in isolation, started on many dates: a single run
+                # from 2010 would report how the strategy did that year, not how
+                # a funded account behaves.
+                fd = funded_distribution(days, fu,
+                                         cfg["withdrawal_policies"]["immediate"], 0.0)
+                fund_net = float(fd["net"].median())
+                fund_mean = float(fd["net"].mean())
+                fund_pay = float(fd["payouts"].median())
+                fund_surv = 100.0 * float(fd["survived"].mean())
 
                 for pol_name, policy in cfg["withdrawal_policies"].items():
                     car = run_career(days, ev, fu, policy, cfg["firm_fees"][fkey])
@@ -95,10 +100,10 @@ def main():
                                eval_days_to_bust=ev_stats.get("median_days_to_bust"),
                                strategy_pnl=perf["net_pnl"],
                                avg_contracts=perf.get("avg_contracts"),
-                               funded_only_net=fund_net,
-                               funded_only_payouts=len(fund["payouts"]),
-                               funded_survived=fund["outcome"] == "survived",
-                               funded_days=fund["days"],
+                               funded_med_net=fund_net,
+                               funded_mean_net=fund_mean,
+                               funded_med_payouts=fund_pay,
+                               funded_survive_pct=fund_surv,
                                max_micros=tier["max_micros"],
                                split=firm["split_after"] or 1.0)
                     rows.append(rec)
@@ -115,10 +120,14 @@ def main():
                                              values="eval_pass_rate")
     print(ev.to_string(float_format=lambda x: f"{x:,.1f}"))
 
-    print("\n=== 2. 资金阶段：假设已经拿到账户，纯出金净额（150K, $）===")
+    print("\n=== 2. 资金阶段：已拿到账户后，2年期净出金中位数（150K, $）===")
     fu = imm[imm.tier == "150k"].pivot_table(index="strategy", columns="firm_label",
-                                             values="funded_only_net")
+                                             values="funded_med_net")
     print(fu.to_string(float_format=fmt))
+    print("\n    对应的 2 年存活率（%）：")
+    sv = imm[imm.tier == "150k"].pivot_table(index="strategy", columns="firm_label",
+                                             values="funded_survive_pct")
+    print(sv.to_string(float_format=lambda x: f"{x:,.0f}"))
 
     print("\n=== 3. 完整生涯净到手（150K, 一达标就提, $）===")
     ca = imm[imm.tier == "150k"].pivot_table(index="strategy", columns="firm_label",
