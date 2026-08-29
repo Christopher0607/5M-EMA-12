@@ -63,7 +63,7 @@ def _simulate(direction: int, entry: float, distance: float,
               highs: np.ndarray, lows: np.ndarray, opens: np.ndarray,
               closes: np.ndarray, favorable_first: bool,
               trailing: bool = True, use_stop: bool = True
-              ) -> tuple[float, str, int, float]:
+              ) -> tuple[float, str, int, float, float]:
     """Walk the management window bar by bar.
 
     Fill convention: a bar that *opens* already through the stop carried in from
@@ -72,16 +72,17 @@ def _simulate(direction: int, entry: float, distance: float,
     preceded the ratchet and is not a valid gap reference.
 
     Returns (exit price before slippage, reason, bars held, max favorable
-    excursion in points).
+    excursion, max adverse excursion) with excursions in points.
     """
     n = len(closes)
     if n == 0:
-        return entry, "no_data", 0, 0.0
+        return entry, "no_data", 0, 0.0, 0.0
 
     long = direction == LONG
     stop = entry - distance if long else entry + distance
-    stop_peak = entry     # drives the ratchet
-    mfe_peak = entry      # diagnostic only, always sees the whole bar
+    stop_peak = entry      # drives the ratchet
+    mfe_peak = entry       # best price seen; always sees the whole bar
+    mae_trough = entry     # worst price seen; feeds intraday equity troughs
 
     for i in range(n):
         stop_in = stop    # level in force at this bar's open
@@ -92,12 +93,14 @@ def _simulate(direction: int, entry: float, distance: float,
                     else min(stop, stop_peak + distance))
 
         mfe_peak = max(mfe_peak, highs[i]) if long else min(mfe_peak, lows[i])
+        mae_trough = min(mae_trough, lows[i]) if long else max(mae_trough, highs[i])
 
         if use_stop and ((lows[i] <= stop) if long else (highs[i] >= stop)):
             gapped = (opens[i] <= stop_in) if long else (opens[i] >= stop_in)
             fill = opens[i] if gapped else stop
             mfe = (mfe_peak - entry) if long else (entry - mfe_peak)
-            return fill, "stop", i + 1, mfe
+            mae = (entry - mae_trough) if long else (mae_trough - entry)
+            return fill, "stop", i + 1, mfe, mae
 
         if not favorable_first and trailing:
             stop_peak = max(stop_peak, highs[i]) if long else min(stop_peak, lows[i])
@@ -105,7 +108,8 @@ def _simulate(direction: int, entry: float, distance: float,
                     else min(stop, stop_peak + distance))
 
     mfe = (mfe_peak - entry) if long else (entry - mfe_peak)
-    return closes[-1], "time", n, mfe
+    mae = (entry - mae_trough) if long else (mae_trough - entry)
+    return closes[-1], "time", n, mfe, mae
 
 
 def build_windows(bars_1m: pd.DataFrame, cfg: dict) -> dict:
@@ -176,7 +180,7 @@ def run(signals: pd.DataFrame, windows: dict, cfg: dict, sizing: Sizing, *,
         opens, highs, lows, closes, stamps = window
         full_len = int(cfg["strategy"]["max_hold_hours"] * 60)
         entry_fill = entry_ref + direction * slip
-        exit_ref, reason, bars_held, mfe = _simulate(
+        exit_ref, reason, bars_held, mfe, mae = _simulate(
             direction, entry_fill, distance, highs, lows, opens, closes,
             favorable_first=favorable_first, trailing=trailing, use_stop=use_stop,
         )
@@ -204,6 +208,7 @@ def run(signals: pd.DataFrame, windows: dict, cfg: dict, sizing: Sizing, *,
             "exit_reason": reason,
             "bars_held": bars_held,
             "mfe_pts": mfe,
+            "mae_pts": mae,
             "atr_pts": float(sig.atr),
             "skipped": None,
         })

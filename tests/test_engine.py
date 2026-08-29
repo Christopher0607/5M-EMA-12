@@ -119,34 +119,35 @@ def _bars(oh_lc):
 def test_long_stops_on_first_bar_that_breaches():
     # bar 1 high 101 ratchets the stop to 91 before bar 2 breaches it
     o, h, l, c = _bars([(100, 101, 95, 96), (96, 97, 88, 89)])
-    px, why, held, _ = _simulate(LONG, 100.0, 10.0, h, l, o, c, favorable_first=False)
+    px, why, held, _, _ = _simulate(LONG, 100.0, 10.0, h, l, o, c, favorable_first=False)
     assert why == "stop" and held == 2 and px == pytest.approx(91.0)
 
 
 def test_long_time_exit_when_stop_never_hit():
     o, h, l, c = _bars([(100, 102, 99, 101), (101, 103, 100, 102)])
-    px, why, held, mfe = _simulate(LONG, 100.0, 10.0, h, l, o, c, favorable_first=False)
+    px, why, held, mfe, mae = _simulate(LONG, 100.0, 10.0, h, l, o, c, favorable_first=False)
     assert why == "time" and held == 2 and px == pytest.approx(102.0)
     assert mfe == pytest.approx(3.0)
+    assert mae == pytest.approx(1.0), "worst price seen was 99"
 
 
 def test_trailing_stop_ratchets_up_and_locks_a_profit():
     # Runs to 130 (stop trails to 120), then collapses.
     o, h, l, c = _bars([(100, 130, 100, 129), (129, 129, 100, 101)])
-    px, why, held, _ = _simulate(LONG, 100.0, 10.0, h, l, o, c, favorable_first=False)
+    px, why, held, _, _ = _simulate(LONG, 100.0, 10.0, h, l, o, c, favorable_first=False)
     assert why == "stop" and held == 2
     assert px == pytest.approx(120.0), "stop must trail to peak-distance, not stay at entry"
 
 
 def test_trailing_stop_never_ratchets_down():
     o, h, l, c = _bars([(100, 130, 100, 129), (129, 131, 130, 130), (130, 130, 105, 106)])
-    px, why, _, _ = _simulate(LONG, 100.0, 10.0, h, l, o, c, favorable_first=False)
+    px, why, _, _, _ = _simulate(LONG, 100.0, 10.0, h, l, o, c, favorable_first=False)
     assert px == pytest.approx(121.0), "stop follows the running peak (131-10)"
 
 
 def test_gap_through_stop_fills_at_the_open_not_the_stop():
     o, h, l, c = _bars([(80, 81, 79, 80)])   # opens far below the 90 stop
-    px, why, _, _ = _simulate(LONG, 100.0, 10.0, h, l, o, c, favorable_first=False)
+    px, why, _, _, _ = _simulate(LONG, 100.0, 10.0, h, l, o, c, favorable_first=False)
     assert why == "stop"
     assert px == pytest.approx(80.0), "a gap-through must fill at the open, not the stop level"
 
@@ -154,9 +155,15 @@ def test_gap_through_stop_fills_at_the_open_not_the_stop():
 def test_short_mirrors_long():
     # falls to 70 (stop trails down to 80), then rallies back through it
     o, h, l, c = _bars([(100, 101, 70, 71), (71, 85, 70, 84)])
-    px, why, held, mfe = _simulate(SHORT, 100.0, 10.0, h, l, o, c, favorable_first=False)
+    px, why, held, mfe, _ = _simulate(SHORT, 100.0, 10.0, h, l, o, c, favorable_first=False)
     assert why == "stop" and held == 2 and px == pytest.approx(80.0)
     assert mfe == pytest.approx(30.0)
+
+
+def test_mae_tracks_the_worst_excursion_before_a_stop():
+    o, h, l, c = _bars([(100, 101, 88, 89)])
+    _, why, _, _, mae = _simulate(LONG, 100.0, 10.0, h, l, o, c, favorable_first=False)
+    assert why == "stop" and mae == pytest.approx(12.0)
 
 
 def test_path_assumption_changes_the_outcome():
@@ -170,14 +177,14 @@ def test_path_assumption_changes_the_outcome():
 
 def test_non_trailing_stop_stays_at_entry_distance():
     o, h, l, c = _bars([(100, 130, 100, 129), (129, 129, 85, 86)])
-    px, why, _, _ = _simulate(LONG, 100.0, 10.0, h, l, o, c,
+    px, why, _, _, _ = _simulate(LONG, 100.0, 10.0, h, l, o, c,
                               favorable_first=False, trailing=False)
     assert why == "stop" and px == pytest.approx(90.0)
 
 
 def test_no_stop_always_exits_on_time():
     o, h, l, c = _bars([(100, 101, 1, 2)])
-    px, why, _, _ = _simulate(LONG, 100.0, 10.0, h, l, o, c,
+    px, why, _, _, _ = _simulate(LONG, 100.0, 10.0, h, l, o, c,
                               favorable_first=False, use_stop=False)
     assert why == "time" and px == pytest.approx(2.0)
 

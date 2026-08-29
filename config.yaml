@@ -40,7 +40,7 @@ strategy:
 
 variants:
   atr:                     # V1 (headline): D = k * ATR14, contracts sized to 1% risk
-    k: [0.5, 1.0, 1.5, 2.0]
+    k: [0.5, 1.0, 1.5, 2.0, 3.0, 4.0]
     default_k: 1.0
   pct:                     # V2: D = p * entry_price, contracts sized to 1% risk
     p: [0.0025, 0.005, 0.0075, 0.01]
