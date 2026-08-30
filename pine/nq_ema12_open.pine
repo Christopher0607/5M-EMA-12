@@ -227,7 +227,11 @@ if strategy.closedtrades > strategy.closedtrades[1]
 
 // ─────────────────────────────────────────────── visuals
 inTrade = strategy.position_size != 0
-bgcolor(showZone and inTrade ? color.new(dirState == 1 ? #2a78d6 : #eb6834, 94) : na)
+// Hoisted rather than nested: a ternary sitting directly in an argument list
+// before another positional argument is ambiguous to Pine's parser, which
+// reports it as a missing closing parenthesis.
+zoneCol = dirState == 1 ? #2a78d6 : #eb6834
+bgcolor(showZone and inTrade ? color.new(zoneCol, 94) : na)
 bgcolor(isSignalBar ? color.new(#eda100, 80) : na, title = "Signal bar")
 
 plotshape(goLong  and tradable, "Long signal",  shape.triangleup,
@@ -262,9 +266,10 @@ if showLbl and (goLong or goShort)
                       str.tostring(stopDist, format.mintick) + " 点\n风险 $" +
                       str.tostring(qty * stopDist * ptValue, "#.##")
                     : "\n跳过：止损太宽")
+    sigCol   = sigDir == 1 ? #2a78d6 : #eb6834
+    sigStyle = sigDir == 1 ? label.style_label_up : label.style_label_down
     label.new(bar_index, tradable ? (sigDir == 1 ? low : high) : close, txt,
-         style = sigDir == 1 ? label.style_label_up : label.style_label_down,
-         color = color.new(sigDir == 1 ? #2a78d6 : #eb6834, 15),
+         style = sigStyle, color = color.new(sigCol, 15),
          textcolor = color.white, size = size.small)
 
 // ─────────────────────────────────────────────── status table
