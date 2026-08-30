@@ -96,6 +96,8 @@ def main():
                     rec.update(strategy=sname, firm=fkey, firm_label=firm["label"],
                                tier=tkey, policy=pol_name,
                                eval_pass_rate=ev_stats.get("pass_rate_pct"),
+                               eval_pass_rate_decided=ev_stats.get("pass_rate_decided_pct"),
+                               eval_undecided_pct=ev_stats.get("undecided_pct"),
                                eval_days_to_pass=ev_stats.get("median_days_to_pass"),
                                eval_days_to_bust=ev_stats.get("median_days_to_bust"),
                                strategy_pnl=perf["net_pnl"],

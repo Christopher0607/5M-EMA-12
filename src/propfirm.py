@@ -137,7 +137,19 @@ def summarise_evaluation(results: pd.DataFrame) -> dict:
         "passed": int(counts.get("passed", 0)),
         "blown": int(counts.get("blown", 0)),
         "undecided": int(counts.get("undecided", 0)),
-        "pass_rate_pct": 100.0 * len(passed) / len(decided) if len(decided) else np.nan,
+        # Two denominators, because the difference is not cosmetic. A slow
+        # configuration can run out the window without either passing or
+        # busting, and those attempts vanish from `pass_rate_decided_pct`.
+        # `fixed N=1` reads 68.5% on that basis and 13.9% on this one, because
+        # 79.7% of its evaluations never reach a decision at all - it is the
+        # WORST config at getting funded, not the best. Ranking on the decided
+        # basis produced exactly that wrong conclusion once already, so
+        # `pass_rate_pct` is the all-attempts number: the probability a trader
+        # who buys one evaluation is funded before the window runs out.
+        "pass_rate_pct": 100.0 * len(passed) / len(results),
+        "pass_rate_decided_pct": (100.0 * len(passed) / len(decided)
+                                  if len(decided) else np.nan),
+        "undecided_pct": 100.0 * int(counts.get("undecided", 0)) / len(results),
         "median_days_to_pass": float(passed["days"].median()) if len(passed) else np.nan,
         "median_days_to_bust": float(blown["days"].median()) if len(blown) else np.nan,
     }

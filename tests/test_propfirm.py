@@ -3,6 +3,7 @@
 import sys
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -94,3 +95,39 @@ def test_daily_frame_scales_excursions_by_contracts_and_point_value():
     d = daily_frame(trades, point_value=2.0)
     assert d.iloc[0]["up"] == pytest.approx(60.0)
     assert d.iloc[0]["down"] == pytest.approx(34.02)
+
+
+# ------------------------------------------------ pass-rate denominator
+
+def _outcomes(passed: int, blown: int, undecided: int) -> pd.DataFrame:
+    rows = ([{"outcome": "passed", "days": 100, "reason": ""}] * passed
+            + [{"outcome": "blown", "days": 50, "reason": "trailing_dd"}] * blown
+            + [{"outcome": "undecided", "days": 250, "reason": ""}] * undecided)
+    return pd.DataFrame(rows)
+
+
+def test_pass_rate_counts_undecided_attempts_in_the_denominator():
+    """A slow config that never decides must not read as a high pass rate.
+
+    This is the shape of `fixed N=1`: 79.7% of its evaluations ran out the
+    window undecided, so the decided-only rate flattered it to 68.5% when a
+    trader's real chance of being funded was 13.9%. Ranking on the decided
+    basis picked the worst config as the best.
+    """
+    got = summarise_evaluation(_outcomes(passed=14, blown=6, undecided=80))
+    assert got["pass_rate_pct"] == pytest.approx(14.0)
+    assert got["pass_rate_decided_pct"] == pytest.approx(70.0)
+    assert got["undecided_pct"] == pytest.approx(80.0)
+
+
+def test_the_two_pass_rates_agree_when_everything_decides():
+    got = summarise_evaluation(_outcomes(passed=30, blown=70, undecided=0))
+    assert got["pass_rate_pct"] == pytest.approx(30.0)
+    assert got["pass_rate_decided_pct"] == pytest.approx(30.0)
+    assert got["undecided_pct"] == 0.0
+
+
+def test_decided_rate_is_nan_when_nothing_decides():
+    got = summarise_evaluation(_outcomes(passed=0, blown=0, undecided=25))
+    assert got["pass_rate_pct"] == 0.0
+    assert np.isnan(got["pass_rate_decided_pct"])
