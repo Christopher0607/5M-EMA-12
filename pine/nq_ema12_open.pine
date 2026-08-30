@@ -136,7 +136,7 @@ stopDistRaw = stopMode == "Percent of price" ? close * stopPct / 100.0
      :                                         atr * atrMult
 // round to the 0.25 tick grid
 stopDist = math.max(math.round(stopDistRaw / syminfo.mintick) * syminfo.mintick,
-                    syminfo.mintick)
+     syminfo.mintick)
 
 qtyRaw = sizeMode == "Fixed contracts" ? fixedQty
      : int(math.floor(riskUsd / (stopDist * ptValue)))
@@ -159,27 +159,31 @@ var int   qtyState  = 0
 //   PickMyTrade  - symbol/data/quantity, data is buy|sell|close, stop is a plain
 //                  `sl` price. Carries token + account_id, i.e. credentials.
 entryMsg(bool isLong, int q, float stp) =>
-    qs = str.tostring(q)
-    ss = str.tostring(stp, format.mintick)
+    qs   = str.tostring(q)
+    ss   = str.tostring(stp, format.mintick)
+    act  = isLong ? "buy" : "sell"
+    sent = isLong ? "bullish" : "bearish"
+    // Built as single-line assignments on purpose. Splitting a concatenation
+    // across lines inside a switch branch is what broke the previous version:
+    // Pine needs a continuation indent that is NOT a multiple of four, and the
+    // natural block indent here is. One line per payload sidesteps the rule.
+    tpHead = '{"ticker":"' + alertSym + '","action":"' + act + '","sentiment":"' + sent + '"'
+    tpBody = ',"quantity":' + qs + ',"stopLoss":{"type":"stop","stopPrice":' + ss + '}}'
+    pmtHd  = '{"symbol":"' + alertSym + '","data":"' + act + '","quantity":' + qs
+    pmtTl  = ',"sl":' + ss + ',"token":"' + pmtToken + '","account_id":"' + pmtAcct + '"}'
+    plain  = (isLong ? "BUY " : "SELL ") + qs + " " + alertSym + " stop " + ss
     switch bridge
-        "TradersPost" =>
-            '{"ticker":"' + alertSym + '","action":"' + (isLong ? "buy" : "sell") +
-            '","sentiment":"' + (isLong ? "bullish" : "bearish") +
-            '","quantity":' + qs +
-            ',"stopLoss":{"type":"stop","stopPrice":' + ss + '}}'
-        "PickMyTrade" =>
-            '{"symbol":"' + alertSym + '","data":"' + (isLong ? "buy" : "sell") +
-            '","quantity":' + qs + ',"sl":' + ss +
-            ',"token":"' + pmtToken + '","account_id":"' + pmtAcct + '"}'
-        =>
-            (isLong ? "BUY " : "SELL ") + qs + " " + alertSym + " stop " + ss
+        "TradersPost" => tpHead + tpBody
+        "PickMyTrade" => pmtHd + pmtTl
+        => plain
 
 exitMsg() =>
+    tpX  = '{"ticker":"' + alertSym + '","action":"exit","sentiment":"flat"}'
+    pmtX = '{"symbol":"' + alertSym + '","data":"close","token":"' + pmtToken + '","account_id":"' + pmtAcct + '"}'
     switch bridge
-        "TradersPost" => '{"ticker":"' + alertSym + '","action":"exit","sentiment":"flat"}'
-        "PickMyTrade" => '{"symbol":"' + alertSym + '","data":"close","token":"' +
-                         pmtToken + '","account_id":"' + pmtAcct + '"}'
-        =>             "FLAT " + alertSym
+        "TradersPost" => tpX
+        "PickMyTrade" => pmtX
+        => "FLAT " + alertSym
 
 flatMsg = exitMsg()
 

@@ -27,6 +27,64 @@ class Finding:
     detail: str
 
 
+def tokenise(raw: str) -> str:
+    """Comments dropped, each string literal collapsed to a single token `S`.
+
+    Collapsing to one token matters: with the literal merely skipped, a line
+    ending in a string looks like it ends in the operator before it, and the
+    continuation rule fires on lines that are perfectly fine.
+    """
+    out, i = [], 0
+    while i < len(raw):
+        c = raw[i]
+        if c == "/" and i + 1 < len(raw) and raw[i + 1] == "/":
+            break
+        if c in "\"'":
+            quote, i = c, i + 1
+            while i < len(raw) and raw[i] != quote:
+                i += 1
+            i += 1
+            out.append("S")
+            continue
+        out.append(c)
+        i += 1
+    return "".join(out).rstrip()
+
+
+CONTINUATION_OPS = ("+", "-", "*", "/", "?", ":", ",", "and", "or",
+                    "==", "!=", ">=", "<=", ">", "<")
+
+
+def rule_continuation_indent(lines: list[str]) -> list[Finding]:
+    """A continuation line indented by a multiple of four reads as a new block.
+
+    Pine uses multiples of four for nested blocks, so a continuation must be
+    indented by something else (5, 9, 10 ... all fine). Break this and the error
+    is `end of line without line continuation (CE10156)` on the *previous* line.
+    """
+    out = []
+    for i, raw in enumerate(lines):
+        code = tokenise(raw)
+        if not code or code.endswith("=>"):
+            continue                      # switch branch / function header
+        if not any(code.endswith(op) for op in CONTINUATION_OPS):
+            continue
+        j = i + 1
+        while j < len(lines) and (not lines[j].strip()
+                                  or lines[j].strip().startswith("//")):
+            j += 1
+        if j >= len(lines):
+            continue
+        indent = len(lines[j]) - len(lines[j].lstrip())
+        if indent % 4 == 0:
+            out.append(Finding(
+                i + 1, "ERROR", "continuation-indent", raw.strip(),
+                f"line ends in an operator but the next line is indented "
+                f"{indent} spaces, a multiple of 4; Pine reads it as a new "
+                f"block, not a continuation"))
+    return out
+
+
 def strip_line(raw: str) -> tuple[str, str | None]:
     """Drop comments and string bodies, keeping structure. Returns (code, open_quote)."""
     out, i, ctx = [], 0, None
@@ -198,7 +256,7 @@ def rule_statement_balance(lines: list[str]) -> list[Finding]:
 
 RULES = (rule_bare_ternary_before_comma, rule_decl_inside_block,
          rule_absolute_location_bool, rule_str_format_number,
-         rule_statement_balance)
+         rule_statement_balance, rule_continuation_indent)
 
 
 def lint(path: str) -> list[Finding]:
