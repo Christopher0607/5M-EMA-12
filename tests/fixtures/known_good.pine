@@ -15,8 +15,6 @@
 // The EMA runs on the 24-hour continuous session. An RTH-only chart computes a
 // different EMA and therefore produces different signals, with no error. The script
 // detects this and warns rather than trading silently.
-//
-// Defaults are set for TopStep $150K + PickMyTrade. See pine/connect_topstep.md.
 
 //@version=6
 strategy("NQ 5m EMA12 Open", overlay = true,
@@ -37,7 +35,6 @@ var string G_STP = "Stop"
 var string G_SIZ = "Sizing"
 var string G_VIS = "Display"
 var string G_ALT = "Automation"
-var string G_SAF = "Safety"
 
 emaLen   = input.int(12, "EMA length", minval = 1, group = G_SIG)
 sigHour  = input.int(9,  "Signal hour (New York)", minval = 0, maxval = 23, group = G_SIG)
@@ -60,8 +57,8 @@ riskUsd  = input.float(500., "  Risk per trade ($)", minval = 1, step = 50, grou
 fixedQty = input.int(2,      "  Fixed contracts", minval = 1, group = G_SIZ)
 ptValue  = input.float(2.0,  "Point value ($)", minval = 0.01, step = 0.5, group = G_SIZ,
      tooltip = "MNQ micro = $2. NQ e-mini = $20.")
-maxQty   = input.int(150,    "Max contracts (firm cap)", minval = 1, group = G_SIZ,
-     tooltip = "TopStep 50K=50 100K=100 150K=150 | Lucid 50K=40 100K=60 150K=100 | " +
+maxQty   = input.int(40,     "Max contracts (firm cap)", minval = 1, group = G_SIZ,
+     tooltip = "Lucid 50K=40 100K=60 150K=100 | TopStep 50K=50 100K=100 150K=150 | " +
                "Apex 50K=100 | TPT 50K=20 150K=50")
 
 showZone = input.bool(true,  "Shade holding window", group = G_VIS)
@@ -69,29 +66,8 @@ showStop = input.bool(true,  "Draw stop line",       group = G_VIS)
 showLbl  = input.bool(true,  "Signal labels",        group = G_VIS)
 showTbl  = input.bool(true,  "Status table",         group = G_VIS)
 
-bridge   = input.string("PickMyTrade", "Execution bridge",
-     options = ["PickMyTrade", "TradersPost", "Plain text"], group = G_ALT,
-     tooltip = "PickMyTrade -> TopStep (TopstepX/ProjectX). TradersPost -> Lucid. " +
-               "The two schemas share no fields, so do not hand-edit the JSON.")
-alertSym = input.string("MNQ", "Alert symbol", group = G_ALT,
-     tooltip = "PickMyTrade wants the ROOT symbol: MNQ. TradersPost wants the chart " +
-               "symbol: MNQ1!. Getting this wrong is the most common setup error.")
-pmtToken = input.string("", "PickMyTrade token", group = G_ALT,
-     tooltip = "CREDENTIAL. If you fill this in you MUST set the script to Private - " +
-               "published scripts expose their inputs. Leave blank to omit the field.")
-pmtAcct  = input.string("", "PickMyTrade account id", group = G_ALT,
-     tooltip = "CREDENTIAL. Same warning as the token.")
-
-armed    = input.bool(false, "Arm live orders", group = G_SAF,
-     tooltip = "OFF by default. While off the strategy still backtests and draws " +
-               "exactly the same, but entry alerts carry inert text no bridge will " +
-               "parse. EXIT alerts are always real - see the note below.")
-useWin   = input.bool(false, "Limit to a date window", group = G_SAF)
-winFrom  = input.time(timestamp("2026-01-01T00:00:00"), "  Start", group = G_SAF)
-winTo    = input.time(timestamp("2027-01-01T00:00:00"), "  End",   group = G_SAF)
-maxLossD = input.int(0, "Stop after N consecutive losing trades", minval = 0, group = G_SAF,
-     tooltip = "0 = off. The firm's drawdown rule ends the account; this ends the " +
-               "orders first. Counts closed trades, not calendar days.")
+alertSym = input.string("MNQ1!", "Alert symbol", group = G_ALT,
+     tooltip = "What your execution bridge expects, e.g. MNQZ2026 or MNQ1!.")
 
 // ─────────────────────────────────────────────── time helpers
 TZ = "America/New_York"
@@ -146,18 +122,6 @@ qtyRaw = sizeMode == "Fixed contracts" ? fixedQty
 qty    = math.min(math.max(qtyRaw, 0), maxQty)
 tradable = qty >= 1
 
-// ─────────────────────────────────────────────── safety gates
-// Consecutive losses. Counted off closed trades so it works on any timeframe.
-var int lossRun = 0
-if strategy.closedtrades > nz(strategy.closedtrades[1])
-    lossRun := strategy.closedtrades.profit(strategy.closedtrades - 1) < 0 ? lossRun + 1 : 0
-
-halted   = maxLossD > 0 and lossRun >= maxLossD
-inWindow = not useWin or (time >= winFrom and time <= winTo)
-// `armed` is deliberately NOT in this gate: it neuters the alert payload, not the
-// order, so toggling it never changes the backtest you validated against the CSV.
-canTrade = tradable and inWindow and not halted
-
 // ─────────────────────────────────────────────── state
 var float entryPx   = na
 var float stopPx    = na
@@ -165,65 +129,29 @@ var int   entryBar  = na
 var int   dirState  = 0
 var int   qtyState  = 0
 
-// ─────────────────────────────────────────────── webhook payloads
-// Verified 2026-08-29 against TradersPost webhook-spec.json and the PickMyTrade JSON
-// alert docs. Only `quantity` is spelled the same in both - the instrument, the side
-// and the stop all differ. An earlier version sent a flat `"stop": N` to
-// TradersPost, which the spec does not define - TradersPost SILENTLY IGNORES unknown
-// fields, so the position went on with no stop at all. The stop must be the nested
-// `stopLoss` object below. This is the single most dangerous thing in the file.
-//
-// Every line here is a complete statement at bracket depth 0. Breaking a string
-// concatenation across lines inside a switch is what broke the previous build.
-qtyStr    = str.tostring(qty)
-longStop  = close - stopDist
-shortStop = close + stopDist
-longStopStr  = str.tostring(longStop, format.mintick)
-shortStopStr = str.tostring(shortStop, format.mintick)
+longMsg  = '{"ticker":"'  + alertSym + '","action":"buy","sentiment":"long","quantity":'
+shortMsg = '{"ticker":"' + alertSym + '","action":"sell","sentiment":"short","quantity":'
+flatMsg  = '{"ticker":"'  + alertSym + '","action":"exit","sentiment":"flat"}'
 
-pmCreds = (pmtToken == "" ? "" : ',"token":"' + pmtToken + '"') + (pmtAcct == "" ? "" : ',"account_id":"' + pmtAcct + '"')
-
-tpLong  = '{"ticker":"' + alertSym + '","action":"buy","sentiment":"bullish","quantity":' + qtyStr + ',"stopLoss":{"type":"stop","stopPrice":' + longStopStr + '}}'
-tpShort = '{"ticker":"' + alertSym + '","action":"sell","sentiment":"bearish","quantity":' + qtyStr + ',"stopLoss":{"type":"stop","stopPrice":' + shortStopStr + '}}'
-tpFlat  = '{"ticker":"' + alertSym + '","action":"exit","sentiment":"flat"}'
-
-pmLong  = '{"symbol":"' + alertSym + '","data":"buy","quantity":' + qtyStr + ',"sl":' + longStopStr + pmCreds + '}'
-pmShort = '{"symbol":"' + alertSym + '","data":"sell","quantity":' + qtyStr + ',"sl":' + shortStopStr + pmCreds + '}'
-pmFlat  = '{"symbol":"' + alertSym + '","data":"close"' + pmCreds + '}'
-
-txLong  = "LONG " + qtyStr + " " + alertSym + " @ market, stop " + longStopStr
-txShort = "SHORT " + qtyStr + " " + alertSym + " @ market, stop " + shortStopStr
-txFlat  = "FLAT " + alertSym
-
-DISARM  = "DISARMED - Arm live orders is off. This is not an order."
-
-liveLong  = bridge == "TradersPost" ? tpLong : bridge == "PickMyTrade" ? pmLong : txLong
-liveShort = bridge == "TradersPost" ? tpShort : bridge == "PickMyTrade" ? pmShort : txShort
-
-longMsg  = armed ? liveLong : DISARM
-shortMsg = armed ? liveShort : DISARM
-// The exit payload is REAL even when disarmed. Suppressing an entry is safe; a
-// suppressed exit strands a live position with no way out. If you disarm while a
-// position is open, the flatten must still get through.
-flatMsg  = bridge == "TradersPost" ? tpFlat : bridge == "PickMyTrade" ? pmFlat : txFlat
-
-// ─────────────────────────────────────────────── orders
-// `strategy.position_size == 0` also guards against a bridge replaying an alert.
-if goLong and canTrade and strategy.position_size == 0
+if goLong and tradable and strategy.position_size == 0
     entryPx  := close
     stopPx   := close - stopDist
     entryBar := bar_index
     dirState := 1
     qtyState := qty
-    strategy.entry("L", strategy.long, qty = qty, alert_message = longMsg)
+    strategy.entry("L", strategy.long, qty = qty,
+         alert_message = longMsg + str.tostring(qty) + ',"stop":' +
+                         str.tostring(stopPx, format.mintick) + '}')
 
-if goShort and canTrade and strategy.position_size == 0
+if goShort and tradable and strategy.position_size == 0
     entryPx  := close
     stopPx   := close + stopDist
     entryBar := bar_index
     dirState := -1
     qtyState := qty
-    strategy.entry("S", strategy.short, qty = qty, alert_message = shortMsg)
+    strategy.entry("S", strategy.short, qty = qty,
+         alert_message = shortMsg + str.tostring(qty) + ',"stop":' +
+                         str.tostring(stopPx, format.mintick) + '}')
 
 // Fixed stop. strategy.exit with a plain `stop` does not trail - that is the point.
 if strategy.position_size > 0
@@ -251,7 +179,7 @@ plotshape(isSignalBar and not tradable and (close != ema12), "Skipped (size 0)",
 
 // Stop line, drawn only while the trade is live
 var line stopLine = na
-if (goLong or goShort) and canTrade
+if (goLong or goShort) and tradable
     if not na(stopLine)
         line.delete(stopLine)
     stopLine := showStop ? line.new(bar_index, stopPx, bar_index + 1, stopPx,
@@ -280,7 +208,7 @@ if showLbl and (goLong or goShort)
 
 // ─────────────────────────────────────────────── status table
 // Declared at global scope: Pine rejects a function definition inside an if block.
-var table t = table.new(position.top_right, 2, 11,
+var table t = table.new(position.top_right, 2, 8,
      bgcolor = color.new(#151a20, 8), border_color = color.new(#38434f, 40),
      border_width = 1)
 
@@ -289,10 +217,6 @@ row(int i, string k, string v) =>
          text_halign = text.align_left)
     table.cell(t, 1, i, v, text_color = color.new(#f2f5f8, 0), text_size = size.small,
          text_halign = text.align_right)
-
-// PickMyTrade takes the root symbol; a trailing "!" means the chart symbol was pasted
-// in by mistake and every order will be rejected.
-symBad = bridge == "PickMyTrade" and str.contains(alertSym, "!")
 
 if showTbl and barstate.islast
     row(0, "状态", inTrade ? (dirState == 1 ? "持多" : "持空") : "空仓")
@@ -306,6 +230,3 @@ if showTbl and barstate.islast
                                  : str.tostring(exitMinOfDay % 60)
     row(6, "出场时刻", exH + ":" + exM + " ET")
     row(7, "盘前盘后", rthOnly or warned ? "⚠ 未开启" : "✓ 已开启")
-    row(8, "桥接商", bridge + " · " + alertSym + (symBad ? " ⚠根代码" : ""))
-    row(9, "实盘开关", armed ? "🔴 已武装" : "🔒 未武装")
-    row(10, "连亏停止", maxLossD == 0 ? "关" : (halted ? "⛔ 已停 " : "") + str.tostring(lossRun) + " / " + str.tostring(maxLossD))

@@ -7,6 +7,13 @@ not enough — the defect that broke `nq_ema12_open.pine` was perfectly balanced
 Every rule below corresponds to a real failure found in this repository, so the
 next edit gets checked instead of the user acting as the compiler.
 
+Reasoning about a parser is also how rules go wrong. Two earlier rules flagged
+`tests/fixtures/known_good.pine`, a script TradingView actually compiles, and
+that false alarm cost a debugging session chasing a defect that did not exist.
+That file is now a regression fixture: `tests/test_pine_lint.py` requires this
+linter to be silent on it, and requires each rule to still fire on the shape it
+exists to catch. A rule that cannot do both does not belong here.
+
 Exit code is non-zero when any ERROR is found.
 """
 
@@ -61,9 +68,17 @@ def rule_continuation_indent(lines: list[str]) -> list[Finding]:
     Pine uses multiples of four for nested blocks, so a continuation must be
     indented by something else (5, 9, 10 ... all fine). Break this and the error
     is `end of line without line continuation (CE10156)` on the *previous* line.
+
+    Only fires at bracket depth 0. Inside an unclosed `(` there is nothing to
+    disambiguate — the call cannot have ended — so Pine reads the next line as a
+    continuation whatever its indent. Flagging those was a false positive that
+    fired on a script TradingView compiles (see tests/fixtures/known_good.pine).
     """
     out = []
+    depths = bracket_depths(lines)
     for i, raw in enumerate(lines):
+        if depths[i] > 0:
+            continue                      # inside brackets: never ambiguous
         code = tokenise(raw)
         if not code or code.endswith("=>"):
             continue                      # switch branch / function header
@@ -104,6 +119,18 @@ def strip_line(raw: str) -> tuple[str, str | None]:
     return "".join(out), ctx
 
 
+def bracket_depths(lines: list[str]) -> list[int]:
+    """Running bracket depth at the END of each line, comments/strings removed."""
+    depths, depth = [], 0
+    for raw in lines:
+        code, _ = strip_line(raw)
+        depth += code.count("(") - code.count(")")
+        depth += code.count("[") - code.count("]")
+        depth = max(depth, 0)
+        depths.append(depth)
+    return depths
+
+
 def logical_statements(lines: list[str]) -> list[list[tuple[int, str]]]:
     """Group each line with the more-indented lines that continue it."""
     groups: list[list[tuple[int, str]]] = []
@@ -125,63 +152,6 @@ def logical_statements(lines: list[str]) -> list[list[tuple[int, str]]]:
 
 
 # ── rules ────────────────────────────────────────────────────────────────────
-
-def rule_bare_ternary_before_comma(lines: list[str]) -> list[Finding]:
-    """`f(a ? b : c, d)` — the parser cannot tell where the ternary ended.
-
-    TradingView reports this as "Missing closing parenthesis (CE10015)", which
-    sends you hunting for a bracket that is not missing.
-
-    Only the genuinely ambiguous shape is an error: a ternary used as a
-    POSITIONAL argument followed by another POSITIONAL argument. When the next
-    argument is named (`title = ...`), Pine can see where the ternary ended and
-    the common `bgcolor(cond ? c : na, title = "x")` idiom compiles fine — so
-    flagging that would be crying wolf.
-    """
-    out = []
-    for group in logical_statements(lines):
-        # Join the statement so depth survives across continuation lines.
-        text, starts = "", []
-        for n, raw in group:
-            code, _ = strip_line(raw)
-            starts.append((len(text), n))
-            text += code + " "
-
-        def line_of(pos: int) -> int:
-            found = starts[0][1]
-            for off, n in starts:
-                if off <= pos:
-                    found = n
-            return found
-
-        depth = 0
-        i = 0
-        while i < len(text):
-            c = text[i]
-            if c == "(":
-                depth += 1
-            elif c == ")":
-                depth = max(depth - 1, 0)
-            elif c == "?" and depth > 0:
-                rest = text[i + 1:]
-                if rest.lstrip().startswith("("):
-                    i += 1
-                    continue                       # already parenthesised
-                m = re.match(r"[^?:()]*:[^,()]*,\s*(.{0,24})", rest)
-                if m:
-                    nxt = m.group(1).lstrip()
-                    named = re.match(r"[A-Za-z_]\w*\s*=(?!=)", nxt)
-                    if not named:
-                        n = line_of(i)
-                        out.append(Finding(
-                            n, "ERROR", "bare-ternary-before-comma",
-                            lines[n - 1].strip(),
-                            "ternary is a positional call argument followed by "
-                            "another positional argument; wrap it in parentheses "
-                            "or hoist it into a variable"))
-            i += 1
-    return out
-
 
 def rule_decl_inside_block(lines: list[str]) -> list[Finding]:
     """Pine rejects a function declaration inside a conditional block."""
@@ -254,9 +224,9 @@ def rule_statement_balance(lines: list[str]) -> list[Finding]:
     return out
 
 
-RULES = (rule_bare_ternary_before_comma, rule_decl_inside_block,
-         rule_absolute_location_bool, rule_str_format_number,
-         rule_statement_balance, rule_continuation_indent)
+RULES = (rule_decl_inside_block, rule_absolute_location_bool,
+         rule_str_format_number, rule_statement_balance,
+         rule_continuation_indent)
 
 
 def lint(path: str) -> list[Finding]:

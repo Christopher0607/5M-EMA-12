@@ -42,10 +42,12 @@ EMA12 跑在 **24 小时连续盘**上。如果关闭盘前盘后，TradingView 
 
 | 平台 | $50K | $100K | $150K |
 |---|---|---|---|
-| Lucid | **40** | 60 | 100 |
-| TopStep | 50 | 100 | 150 |
+| **TopStep** | 50 | 100 | **150** ← 脚本默认 |
+| Lucid | 40 | 60 | 100 |
 | Apex | 100 | 140 | 170 |
 | Take Profit Trader | 20 | 40 | 50 |
+
+脚本默认 150（TopStep $150K）。**买了别的档位就要改**，填错第一单就违规。
 
 ### 其他
 
@@ -72,7 +74,7 @@ EMA12 跑在 **24 小时连续盘**上。如果关闭盘前盘后，TradingView 
 ## 4. 验证脚本是否和回测一致
 
 ```bash
-./.venv/bin/python scripts/export_tv_check.py --since 2025 --max-contracts 40
+./.venv/bin/python scripts/export_tv_check.py --since 2025 --max-contracts 150
 ```
 
 生成 `results/tv_expected_trades.csv`，逐日列出方向、入场、止损点数、手数、出场原因。
@@ -169,20 +171,27 @@ EMA12 跑在 **24 小时连续盘**上。如果关闭盘前盘后，TradingView 
 
 ---
 
-### Lucid（首选）
+> **完整的落地步骤看 [`connect_topstep.md`](connect_topstep.md)**（TopStep）
+> 或 [`connect.md`](connect.md)（Lucid）。下面只是提要。
 
-1. TradersPost 注册 → 连接 Lucid 账户 → **先选模拟账户**
-2. TradingView 加载脚本 → 参数：执行桥接商 = `TradersPost`，Alert symbol = `MNQ1!`，
-   手数上限 = 40（$50K 档）
+### TopStep（脚本默认走这条）
+
+1. PickMyTrade 注册 → 连接 TopStep 账户 → **先选模拟账户**
+2. TradingView 加载脚本 → 参数：执行桥接商 = `PickMyTrade`，Alert symbol = **`MNQ`**
+   （根代码，不是 `MNQ1!`），手数上限 = 150（$150K 档）
 3. 创建警报 → 条件选**策略本身**（不是单个信号）
-4. Webhook URL 填 TradersPost 给的地址
+4. Webhook URL 填 PickMyTrade 给的地址
 5. 消息填 `{{strategy.order.alert_message}}` — 脚本已经按上面的 schema 拼好了
 6. 走完 `paper_check.md` 全部清单，再打开 `Arm live orders`
 
-### TopStep（备选）
+> **档位选 $150K，不是 $50K。** TopStep 的一致性规则按利润目标缩放，$50K 的单日
+> 盈利上限只有 $1,500，这个策略的盈利太集中，经常一天就撞线。$150K 净到手是
+> $50K 的 14.8 倍。**这和 Lucid 的建议正好相反**，原因见 `connect_topstep.md`。
 
-同上，桥接商参数改成 `PickMyTrade`，Alert symbol 改成 `MNQ`，填 token 和 account_id，
-**并把脚本设为 Private**。PickMyTrade 后台可以直接生成 webhook URL 和消息模板。
+### Lucid（备选）
+
+同上，桥接商参数改成 `TradersPost`，Alert symbol 改成 `MNQ1!`，手数上限改成 40。
+Lucid 走 $50K 档——**它的规则和 TopStep 是反的**，别把两边的档位建议搞混。
 
 ### 上线前必做
 
