@@ -57,6 +57,9 @@ class Career:
         return self.withdrawn - self.fees_paid
 
 
+MONTH_SESSIONS = 21     # trading sessions in a calendar month
+
+
 def _split(gross: float, taken_so_far: float, full_to: float, after: float) -> float:
     """Apply the firm's profit split to one withdrawal."""
     full_room = max(full_to - taken_so_far, 0.0)
@@ -127,7 +130,7 @@ def run_funded(days: pd.DataFrame, rules: dict, policy: dict, monthly_fee: float
         day_low = balance - row.down
         day_close = balance + row.pnl
 
-        if n % 21 == 1:                 # roughly one calendar month of sessions
+        if n % MONTH_SESSIONS == 1:     # roughly one calendar month of sessions
             fees += monthly_fee
 
         if day_low <= incoming:
@@ -187,16 +190,36 @@ def _funded_result(outcome, days, balance, payouts, fees, reason) -> dict:
 def run_career(days: pd.DataFrame, eval_rules: dict, funded_rules: dict,
                policy: dict, fees: dict, start_idx: int = 0,
                eval_cap: int = 250) -> Career:
-    """Buy evaluations and trade funded accounts until the data runs out."""
+    """Buy evaluations and trade funded accounts until the data runs out.
+
+    Two fee shapes, because they are not interchangeable. `evaluation` is a
+    one-time charge per attempt. `monthly_eval` is a subscription billed per
+    month of elapsed evaluation time, which is what TopStep actually charges:
+    $199/month on the $150K with a reset credit included on each rebill, so
+    busting again inside a month you have already paid for is free.
+
+    Charging a subscription as if it were per-attempt understates it by the
+    number of months an attempt lasts. On this strategy an attempt averages 3.6
+    months, so the difference is not a rounding error - it is 14x.
+    """
     car = Career()
     cursor = start_idx
     n = len(days)
+    per_attempt = float(fees.get("evaluation", 0.0))
+    monthly_eval = float(fees.get("monthly_eval", 0.0))
+    eval_months_billed = 0
     while cursor < n:
         car.evals_bought += 1
-        car.fees_paid += float(fees["evaluation"])
+        car.fees_paid += per_attempt
         res = run_account(days, eval_rules, start_idx=cursor, max_days=eval_cap)
         cursor += res["days"]
         car.days_in_eval += res["days"]
+        if monthly_eval:
+            # Bill by elapsed evaluation time, not by attempt: a reset inside a
+            # month already paid for costs nothing.
+            due = -(-car.days_in_eval // MONTH_SESSIONS)      # ceil
+            car.fees_paid += (due - eval_months_billed) * monthly_eval
+            eval_months_billed = due
         if res["outcome"] != "passed":
             if res["outcome"] == "undecided" and cursor >= n:
                 car.ended = "end_of_data"

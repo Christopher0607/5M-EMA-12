@@ -439,3 +439,55 @@ def test_funded_distribution_reports_a_spread_not_one_path():
     fd = funded_distribution(days(rows), LUCID_F, ALL, 0.0, step=21, horizon=60)
     assert len(fd) > 1
     assert {"start_date", "payouts", "net", "survived", "days"} <= set(fd.columns)
+
+
+# --------------------------------------------- subscription evaluation fees
+
+def _flat_days(n: int, pnl: float) -> pd.DataFrame:
+    """A daily frame that never busts and never passes: pure clock for fees."""
+    return pd.DataFrame({
+        "session_date": pd.date_range("2020-01-01", periods=n, freq="D"),
+        "pnl": [pnl] * n, "down": [0.0] * n, "up": [pnl] * n,
+    })
+
+
+EVAL = dict(balance=50_000.0, trailing_dd=2_000.0, daily_loss_limit=None,
+            profit_target=1e9, trail_basis="eod", lock_at_initial=True)
+FUNDED = dict(balance=50_000.0, trailing_dd=2_000.0, daily_loss_limit=None,
+              trail_basis="eod", lock_at_initial=True, static_floor=False,
+              min_trading_days=0, min_day_profit=0.0, safety_net=50_000.0,
+              payout_cap=None, split_full_to=0.0, split_after=1.0)
+
+
+def test_subscription_fee_bills_per_month_of_evaluation_time():
+    """$199/month for 63 sessions of evaluation is 3 months, not 1 attempt."""
+    days = _flat_days(63, 1.0)
+    car = run_career(days, EVAL, FUNDED, {"kind": "all"},
+                     {"evaluation": 0.0, "monthly_eval": 199.0})
+    assert car.days_in_eval == 63
+    assert car.fees_paid == pytest.approx(3 * 199.0)
+
+
+def test_per_attempt_and_subscription_fees_diverge_by_attempt_length():
+    """The bug this models: a per-attempt fee understates a subscription."""
+    days = _flat_days(63, 1.0)
+    flat = run_career(days, EVAL, FUNDED, {"kind": "all"},
+                      {"evaluation": 199.0})
+    subs = run_career(days, EVAL, FUNDED, {"kind": "all"},
+                      {"evaluation": 0.0, "monthly_eval": 199.0})
+    assert flat.fees_paid == pytest.approx(199.0)      # one attempt
+    assert subs.fees_paid == pytest.approx(597.0)      # three months of it
+
+
+def test_a_partial_month_still_bills_a_whole_month():
+    days = _flat_days(22, 1.0)
+    car = run_career(days, EVAL, FUNDED, {"kind": "all"},
+                     {"evaluation": 0.0, "monthly_eval": 199.0})
+    assert car.fees_paid == pytest.approx(2 * 199.0)
+
+
+def test_no_subscription_key_leaves_fees_unchanged():
+    """Firms billed per attempt must keep the old behaviour exactly."""
+    days = _flat_days(63, 1.0)
+    car = run_career(days, EVAL, FUNDED, {"kind": "all"}, {"evaluation": 45.0})
+    assert car.fees_paid == pytest.approx(45.0)

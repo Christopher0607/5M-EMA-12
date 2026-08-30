@@ -243,13 +243,24 @@ firms:
              min_trading_days: 5, min_day_profit: 150.0,
              capped_payouts: null, consistency_max_day_share: null,
              safety_net_offset: 0.0, daily_loss_soft: false}
+    # `monthly_eval` is the Combine subscription, billed per month of elapsed
+    # evaluation time - NOT per attempt. Only the $150K price is verified (from
+    # the pricing page, 2026-08-30: $199/mo, was $229, and the $9,000 / $4,500 /
+    # $3,000 / 150-micro figures below all matched it). The other two are
+    # estimates from the old tier ladder and should be re-checked before they
+    # are used to argue anything.
+    # `payout_cap` doubles on the $150K because "DOUBLE Payout Caps" ships in
+    # the Responsible Trading Advantage bundle shown on that page.
     tiers:
       50k:  {balance: 50000.0,  trailing_dd: 2000.0, profit_target: 3000.0,
-             daily_loss_limit: 1000.0, max_micros: 50,  payout_cap: 2000.0}
+             daily_loss_limit: 1000.0, max_micros: 50,  payout_cap: 2000.0,
+             monthly_eval: 49.0}     # estimate
       100k: {balance: 100000.0, trailing_dd: 3000.0, profit_target: 6000.0,
-             daily_loss_limit: 2000.0, max_micros: 100, payout_cap: 3000.0}
+             daily_loss_limit: 2000.0, max_micros: 100, payout_cap: 3000.0,
+             monthly_eval: 99.0}     # estimate
       150k: {balance: 150000.0, trailing_dd: 4500.0, profit_target: 9000.0,
-             daily_loss_limit: 3000.0, max_micros: 150, payout_cap: 5000.0}
+             daily_loss_limit: 3000.0, max_micros: 150, payout_cap: 10000.0,
+             monthly_eval: 199.0}    # verified
 
   lucid:
     label: "Lucid (LucidPro)"
@@ -293,8 +304,17 @@ firms:
       150k: {balance: 150000.0, trailing_dd: 4500.0, profit_target: 9000.0,
              daily_loss_limit: null, max_micros: 50}
 
+# WARNING on cross-firm comparison. TopStep below is billed as what it is: a
+# monthly subscription on the evaluation, overridden per tier above. The other
+# three are still a single per-attempt charge, which is almost certainly too
+# generous to them for the same reason it was too generous to TopStep - an
+# attempt on this strategy lasts about 3.6 months. Until they are re-checked
+# against their own pricing pages, TopStep is being measured honestly and the
+# other three are not, so a firm-vs-firm ranking is NOT apples to apples.
 firm_fees:      # promotional pricing, which is what most people actually pay
   apex:    {evaluation: 35.0,  activation: 0.0, monthly_funded: 85.0}
-  topstep: {evaluation: 49.0,  activation: 0.0, monthly_funded: 49.0}
+  # TopStep: activation is free (Express Funded), and the Combine subscription
+  # stops once you pass, so the only recurring cost is monthly_eval per tier.
+  topstep: {evaluation: 0.0,   activation: 0.0, monthly_funded: 0.0}
   lucid:   {evaluation: 45.0,  activation: 0.0, monthly_funded: 0.0}
   tpt:     {evaluation: 60.0,  activation: 0.0, monthly_funded: 0.0}

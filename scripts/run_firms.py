@@ -90,8 +90,14 @@ def main():
                 fund_pay = float(fd["payouts"].median())
                 fund_surv = 100.0 * float(fd["survived"].mean())
 
+                # A tier may override the fee (TopStep prices its Combine
+                # subscription per tier), so tier keys win over firm defaults.
+                tier_fees = dict(cfg["firm_fees"][fkey])
+                if "monthly_eval" in tier:
+                    tier_fees["monthly_eval"] = tier["monthly_eval"]
+
                 for pol_name, policy in cfg["withdrawal_policies"].items():
-                    car = run_career(days, ev, fu, policy, cfg["firm_fees"][fkey])
+                    car = run_career(days, ev, fu, policy, tier_fees)
                     rec = summarise_career(car, len(days))
                     rec.update(strategy=sname, firm=fkey, firm_label=firm["label"],
                                tier=tkey, policy=pol_name,
