@@ -276,3 +276,39 @@ def test_metrics_survive_a_csv_round_trip(tmp_path):
     reloaded = summarise(pd.read_csv(path), 50000.0)
     assert reloaded["net_pnl"] == pytest.approx(direct["net_pnl"])
     assert reloaded["years"] == pytest.approx(direct["years"])
+
+
+def test_time_exits_are_labelled_correctly_on_non_minute_bars():
+    """Feeding 5-minute bars must not relabel every time exit as a session close.
+
+    The window length has to come from the data's own bar interval; a hardcoded
+    minute count silently mislabels the exit reason on any other timeframe.
+    """
+    from src.bars import resample_5m
+    from src.strategy import Sizing, build_windows, run
+
+    day = pd.date_range("2024-07-10T13:30", "2024-07-10T20:00", freq="1min",
+                        tz="UTC", inclusive="left")
+    px = pd.Series(range(len(day)), dtype="float64") * 0.25 + 20000.0
+    bars = pd.DataFrame({"ts": day, "open": px, "high": px + 1.0,
+                         "low": px - 1.0, "close": px, "volume": 10})
+    cfg = {
+        "strategy": {"signal_local_time": "09:30", "timezone": "America/New_York",
+                     "bar_minutes": 5, "ema_period": 12, "atr_period": 14,
+                     "max_hold_hours": 6},
+        "contract": {"point_value": 2.0, "tick_size": 0.25},
+        "account": {"initial_capital": 50000.0, "risk_pct": 0.01, "max_contracts": 40},
+        "costs": {"commission_rt": 1.34, "slippage_ticks": 1},
+    }
+    signals = pd.DataFrame({
+        "ts": [pd.Timestamp("2024-07-10T13:30", tz="UTC")],
+        "session_date": [pd.Timestamp("2024-07-10").date()],
+        "close": [20000.0], "ema": [19000.0], "atr": [10.0],
+    })
+
+    on_1m = run(signals, build_windows(bars, cfg), cfg, Sizing("fixed", 1.0))
+    on_5m = run(signals, build_windows(resample_5m(bars, 5), cfg), cfg,
+                Sizing("fixed", 1.0))
+    assert on_1m.iloc[0]["exit_reason"] == "time"
+    assert on_5m.iloc[0]["exit_reason"] == "time", \
+        "5-minute bars must still report a full-length hold as a time exit"

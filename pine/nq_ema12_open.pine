@@ -66,8 +66,29 @@ showStop = input.bool(true,  "Draw stop line",       group = G_VIS)
 showLbl  = input.bool(true,  "Signal labels",        group = G_VIS)
 showTbl  = input.bool(true,  "Status table",         group = G_VIS)
 
+bridge   = input.string("TradersPost", "Execution bridge",
+     options = ["TradersPost", "PickMyTrade", "Plain text"], group = G_ALT,
+     tooltip = "Schemas verified against each bridge's own documentation. " +
+               "They are NOT interchangeable - the field names differ entirely.")
 alertSym = input.string("MNQ1!", "Alert symbol", group = G_ALT,
-     tooltip = "What your execution bridge expects, e.g. MNQZ2026 or MNQ1!.")
+     tooltip = "TradersPost takes the TradingView ticker (MNQ1!). PickMyTrade " +
+               "takes the root symbol (MNQ). Check your bridge's symbol mapping.")
+pmtToken = input.string("", "PickMyTrade token", group = G_ALT,
+     tooltip = "PickMyTrade only. WARNING: this is a credential. Keep the script " +
+               "PRIVATE - a published TradingView script exposes its inputs.")
+pmtAcct  = input.string("", "PickMyTrade account_id", group = G_ALT)
+
+var string G_SAFE = "Safety"
+tradingOn = input.bool(false, "Arm live orders", group = G_SAFE,
+     tooltip = "OFF by default on purpose. The chart still backtests and draws " +
+               "everything; it just will not emit entry alerts. Turn this on only " +
+               "when you have finished the paper-trading checklist.")
+useWindow = input.bool(false, "Limit to a date window", group = G_SAFE)
+startDate = input.time(timestamp("2026-01-01T00:00"), "  From", group = G_SAFE)
+endDate   = input.time(timestamp("2027-01-01T00:00"), "  Until", group = G_SAFE)
+maxLosses = input.int(0, "Stop after N consecutive losing days", minval = 0,
+     group = G_SAFE, tooltip = "0 disables. The firm's drawdown rule ends the " +
+     "account; this ends the orders first.")
 
 // ─────────────────────────────────────────────── time helpers
 TZ = "America/New_York"
@@ -129,29 +150,64 @@ var int   entryBar  = na
 var int   dirState  = 0
 var int   qtyState  = 0
 
-longMsg  = '{"ticker":"'  + alertSym + '","action":"buy","sentiment":"long","quantity":'
-shortMsg = '{"ticker":"' + alertSym + '","action":"sell","sentiment":"short","quantity":'
-flatMsg  = '{"ticker":"'  + alertSym + '","action":"exit","sentiment":"flat"}'
+// Payload schemas verified 2026-08-29 against each bridge's own docs:
+//   TradersPost  - webhook-spec.json: action is buy|sell|exit|cancel|add,
+//                  sentiment is bullish|bearish|flat (NOT long/short), and the
+//                  stop is a NESTED object: stopLoss:{type:"stop",stopPrice:N}.
+//                  A flat "stop" field is silently ignored - the position would
+//                  ride with no protection, which is the worst failure here.
+//   PickMyTrade  - symbol/data/quantity, data is buy|sell|close, stop is a plain
+//                  `sl` price. Carries token + account_id, i.e. credentials.
+entryMsg(bool isLong, int q, float stp) =>
+    qs = str.tostring(q)
+    ss = str.tostring(stp, format.mintick)
+    switch bridge
+        "TradersPost" =>
+            '{"ticker":"' + alertSym + '","action":"' + (isLong ? "buy" : "sell") +
+            '","sentiment":"' + (isLong ? "bullish" : "bearish") +
+            '","quantity":' + qs +
+            ',"stopLoss":{"type":"stop","stopPrice":' + ss + '}}'
+        "PickMyTrade" =>
+            '{"symbol":"' + alertSym + '","data":"' + (isLong ? "buy" : "sell") +
+            '","quantity":' + qs + ',"sl":' + ss +
+            ',"token":"' + pmtToken + '","account_id":"' + pmtAcct + '"}'
+        =>
+            (isLong ? "BUY " : "SELL ") + qs + " " + alertSym + " stop " + ss
 
-if goLong and tradable and strategy.position_size == 0
+exitMsg() =>
+    switch bridge
+        "TradersPost" => '{"ticker":"' + alertSym + '","action":"exit","sentiment":"flat"}'
+        "PickMyTrade" => '{"symbol":"' + alertSym + '","data":"close","token":"' +
+                         pmtToken + '","account_id":"' + pmtAcct + '"}'
+        =>             "FLAT " + alertSym
+
+flatMsg = exitMsg()
+
+// Guards, in order: armed, inside the date window, under the loss cutoff, and
+// flat. The flat check also absorbs a bridge replaying or double-delivering an
+// alert, which would otherwise stack a second position.
+inWindow = not useWindow or (time >= startDate and time <= endDate)
+var int lossStreak = 0
+underStreak = maxLosses == 0 or lossStreak < maxLosses
+mayTrade = tradingOn and inWindow and underStreak and strategy.position_size == 0
+
+if goLong and tradable and mayTrade
     entryPx  := close
     stopPx   := close - stopDist
     entryBar := bar_index
     dirState := 1
     qtyState := qty
     strategy.entry("L", strategy.long, qty = qty,
-         alert_message = longMsg + str.tostring(qty) + ',"stop":' +
-                         str.tostring(stopPx, format.mintick) + '}')
+         alert_message = entryMsg(true, qty, stopPx))
 
-if goShort and tradable and strategy.position_size == 0
+if goShort and tradable and mayTrade
     entryPx  := close
     stopPx   := close + stopDist
     entryBar := bar_index
     dirState := -1
     qtyState := qty
     strategy.entry("S", strategy.short, qty = qty,
-         alert_message = shortMsg + str.tostring(qty) + ',"stop":' +
-                         str.tostring(stopPx, format.mintick) + '}')
+         alert_message = entryMsg(false, qty, stopPx))
 
 // Fixed stop. strategy.exit with a plain `stop` does not trail - that is the point.
 if strategy.position_size > 0
@@ -163,6 +219,11 @@ if strategy.position_size < 0
 timeExit = isExitBar and strategy.position_size != 0
 if timeExit
     strategy.close_all("6h time exit", alert_message = flatMsg)
+
+// Track consecutive losing days for the cutoff above.
+if strategy.closedtrades > strategy.closedtrades[1]
+    lossStreak := strategy.closedtrades.profit(strategy.closedtrades - 1) < 0
+         ? lossStreak + 1 : 0
 
 // ─────────────────────────────────────────────── visuals
 inTrade = strategy.position_size != 0

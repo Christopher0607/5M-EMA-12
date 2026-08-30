@@ -164,6 +164,11 @@ def run(signals: pd.DataFrame, windows: dict, cfg: dict, sizing: Sizing, *,
     slip = float(k["slippage_ticks"]) * tick
     commission = float(k["commission_rt"])
 
+    # How many bars a full-length holding window contains. Derived from the data's
+    # own bar interval rather than assuming minutes: fed 5-minute bars, a hardcoded
+    # minute count would mislabel every time exit as an early session close.
+    full_len = _window_length(windows, float(cfg["strategy"]["max_hold_hours"]))
+
     rows = []
     for sig in signals.itertuples(index=False):
         if sig.close > sig.ema:
@@ -189,7 +194,6 @@ def run(signals: pd.DataFrame, windows: dict, cfg: dict, sizing: Sizing, *,
             continue
 
         opens, highs, lows, closes, stamps = window
-        full_len = int(cfg["strategy"]["max_hold_hours"] * 60)
         entry_fill = entry_ref + direction * slip
         exit_ref, reason, bars_held, mfe, mae = _simulate(
             direction, entry_fill, distance, highs, lows, opens, closes,
@@ -224,6 +228,16 @@ def run(signals: pd.DataFrame, windows: dict, cfg: dict, sizing: Sizing, *,
             "skipped": None,
         })
     return pd.DataFrame(rows)
+
+
+def _window_length(windows: dict, max_hold_hours: float) -> int:
+    """Bars in a full holding window, inferred from the series' own bar interval."""
+    for stamps in (w[4] for w in windows.values()):
+        if len(stamps) >= 2:
+            step_min = (stamps[1] - stamps[0]) / np.timedelta64(1, "m")
+            if step_min > 0:
+                return int(round(max_hold_hours * 60.0 / step_min))
+    return int(round(max_hold_hours * 60.0))
 
 
 def _skip(sig, why: str) -> dict:

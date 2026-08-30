@@ -107,30 +107,82 @@ EMA12 跑在 **24 小时连续盘**上。如果关闭盘前盘后，TradingView 
 
 三家都禁止 HFT / 延迟套利。这个策略一天一笔，不沾边。
 
-### Lucid（首选）
+### Webhook 消息格式（2026-08-29 照官方文档核实）
 
-Lucid 支持 8 个平台，含 TradingView。两条路：
+**两家的字段完全不同，不能混用。** 脚本里用「执行桥接商」参数切换，别手改 JSON。
 
-**路线 A：TradersPost 桥接（无需写代码）**
-1. TradersPost 注册 → 连接 Lucid 账户
-2. 在 TradingView 加载脚本 → 创建警报 → 条件选**策略本身**（不是单个信号）
-3. Webhook URL 填 TradersPost 给的地址
-4. 消息填 `{{strategy.order.alert_message}}` — 脚本已经把 JSON 拼好了
+#### TradersPost（Lucid 用这个）
 
-脚本发出的 JSON：
+来源：TradersPost 官方 `webhook-spec.json`。
+
 ```json
-{"ticker":"MNQ1!","action":"buy","sentiment":"long","quantity":2,"stop":21160.25}
+{"ticker":"MNQ1!","action":"buy","sentiment":"bullish","quantity":2,
+ "stopLoss":{"type":"stop","stopPrice":21160.25}}
+```
+```json
 {"ticker":"MNQ1!","action":"exit","sentiment":"flat"}
 ```
-把「Alert symbol」参数改成你的桥接商要的格式（`MNQZ2026` 或 `MNQ1!`）。
 
-**路线 B：Lucid 官方 API**（Python / Java / C++）——自己接管下单，不依赖第三方。适合要精细
-控制风控的情况。
+| 字段 | 说明 |
+|---|---|
+| `ticker` | 必填 |
+| `action` | 必填，枚举：`buy` / `sell` / `exit` / `cancel` / `add` |
+| `sentiment` | 枚举：**`bullish` / `bearish` / `flat`**——不是 `long`/`short` |
+| `quantity` | 省略则默认 1 |
+| `stopLoss` | **嵌套对象**：`{"type":"stop","stopPrice":N}`，`type` 可选 `stop`/`stop_limit`/`trailing_stop` |
+
+> ⚠ **止损必须是嵌套对象。** 早先版本的脚本发的是扁平的 `"stop": N`——TradersPost 会
+> **直接忽略**这个字段，仓位就没有止损保护了。已修正。
+
+#### PickMyTrade（TopStep 用这个）
+
+来源：PickMyTrade 官方 JSON alert 配置文档。
+
+```json
+{"symbol":"MNQ","data":"buy","quantity":2,"sl":21160.25,
+ "token":"<你的token>","account_id":"<你的账户>"}
+```
+```json
+{"symbol":"MNQ","data":"close","token":"<你的token>","account_id":"<你的账户>"}
+```
+
+| 字段 | 说明 |
+|---|---|
+| `symbol` | 根代码（`MNQ`），不是 `MNQ1!` |
+| `data` | 枚举：`buy` / `sell` / `close` |
+| `sl` | 直接给价格（也支持 `dollar_sl` / `percentage_sl`） |
+| `token` / `account_id` | **凭证** |
+
+> ⚠ **token 是凭证。** 填进脚本参数后，**必须把 TradingView 脚本设为 Private**——公开脚本
+> 会暴露 inputs。PickMyTrade 官方也建议直接用他们后台生成的 JSON，而不是手写。
+
+---
+
+### 安全阀（脚本内置）
+
+| 参数 | 默认 | 作用 |
+|---|---|---|
+| **Arm live orders** | **关闭** | 关闭时照常回测画图，但**不发入场 alert**。默认就是关的 |
+| Limit to a date window | 关闭 | 限定生效日期，防止图表开着忘了关 |
+| Stop after N consecutive losing days | 0（关） | 连亏 N 天后停止发单。平台的回撤规则会结束账户，这个先结束订单 |
+| 重复入场防护 | always on | 已有持仓时拒绝再次入场，挡掉桥接商重复投递 |
+
+---
+
+### Lucid（首选）
+
+1. TradersPost 注册 → 连接 Lucid 账户 → **先选模拟账户**
+2. TradingView 加载脚本 → 参数：执行桥接商 = `TradersPost`，Alert symbol = `MNQ1!`，
+   手数上限 = 40（$50K 档）
+3. 创建警报 → 条件选**策略本身**（不是单个信号）
+4. Webhook URL 填 TradersPost 给的地址
+5. 消息填 `{{strategy.order.alert_message}}` — 脚本已经按上面的 schema 拼好了
+6. 走完 `paper_check.md` 全部清单，再打开 `Arm live orders`
 
 ### TopStep（备选）
 
-TopstepX 基于 ProjectX，有官方 API。PickMyTrade 支持 TradingView → ProjectX/TopstepX 直连，
-设置流程和上面类似。想自己写代码的话，ProjectX API 比第三方桥更直接。
+同上，桥接商参数改成 `PickMyTrade`，Alert symbol 改成 `MNQ`，填 token 和 account_id，
+**并把脚本设为 Private**。PickMyTrade 后台可以直接生成 webhook URL 和消息模板。
 
 ### 上线前必做
 
